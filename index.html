@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
+  <title>Demo 1 — Gyro rotate + pinch dolly</title>
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;font-family:system-ui}
+    #ui{position:fixed;left:12px;top:12px;z-index:10;background:#fff9;border-radius:12px;padding:10px;backdrop-filter:blur(6px)}
+    button{padding:10px 12px;border-radius:10px;border:1px solid #ccc;background:#fff}
+    #hint{font-size:12px;opacity:.8;margin-top:6px;max-width:280px}
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="enable">Włącz sterowanie ruchem telefonu</button>
+    <div id="hint">
+      Gesty: 1 palec = obrót (Orbit), pinch = przybliż/oddal (dolly).<br/>
+      Po włączeniu: ruch telefonu nadpisuje obrót kamery.
+    </div>
+  </div>
+  <canvas id="c"></canvas>
+
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+    import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+    import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+
+    const canvas = document.getElementById("c");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(devicePixelRatio);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf2f2f2);
+
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 500);
+    camera.position.set(0, 1.2, 3);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1, 0);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1.0));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+    dir.position.set(3, 5, 2);
+    scene.add(dir);
+
+    // Placeholder model jeśli nie podasz GLB:
+    const grid = new THREE.GridHelper(10, 10);
+    scene.add(grid);
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(1,1,1),
+      new THREE.MeshStandardMaterial({ color: 0x4a90e2, metalness: 0.1, roughness: 0.7 })
+    );
+    box.position.y = 0.5;
+    scene.add(box);
+
+    // Jeśli masz swój GLB — podmień URL:
+    // new GLTFLoader().load("https://twoj-host/model.glb", (g)=>{ scene.add(g.scene); });
+
+    function resize(){
+      const w = innerWidth, h = innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w/h;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener("resize", resize); resize();
+
+    // --- Gyro rotate (yaw/pitch) ---
+    let gyroEnabled = false;
+    let yaw0 = 0;
+    let haveBaseline = false;
+
+    function deg2rad(d){ return d * Math.PI / 180; }
+
+    // Mapujemy (alpha,beta,gamma) -> yaw/pitch w prosty sposób (wystarczające do demo).
+    // Produkcyjnie warto użyć porządnej konwersji na quaternion (z uwzględnieniem orientacji ekranu).
+    function onDeviceOrientation(e){
+      if (!gyroEnabled) return;
+      const alpha = e.alpha ?? 0; // z
+      const beta  = e.beta  ?? 0; // x
+      const gamma = e.gamma ?? 0; // y
+
+      const yaw = deg2rad(alpha);
+      const pitch = deg2rad(beta);
+
+      if (!haveBaseline) { yaw0 = yaw; haveBaseline = true; }
+
+      // Nadpisujemy tylko obrót, zoom zostaje z OrbitControls
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = -(yaw - yaw0);
+      camera.rotation.x = -pitch * 0.6;
+    }
+
+    document.getElementById("enable").addEventListener("click", async ()=>{
+      // Na Android Chrome zwykle nie trzeba requestPermission (to głównie iOS),
+      // ale obsługujemy, jeśli API istnieje.
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        const p = await DeviceOrientationEvent.requestPermission();
+        if (p !== "granted") return;
+      }
+      gyroEnabled = true;
+      haveBaseline = false;
+      window.addEventListener("deviceorientation", onDeviceOrientation, true);
+      document.getElementById("enable").textContent = "Ruch telefonu: WŁĄCZONE";
+    });
+
+    function animate(){
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>
