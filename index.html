@@ -5,10 +5,46 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
   <title>Demo 1 — Gyro rotate + pinch dolly</title>
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;font-family:system-ui}
-    #ui{position:fixed;left:12px;top:12px;z-index:10;background:#fff9;border-radius:12px;padding:10px;backdrop-filter:blur(6px)}
-    button{padding:10px 12px;border-radius:10px;border:1px solid #ccc;background:#fff}
-    #hint{font-size:12px;opacity:.8;margin-top:6px;max-width:280px}
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui;
+    }
+    #c {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      touch-action: none;
+    }
+    #ui {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      z-index: 10;
+      background: #fff9;
+      border-radius: 12px;
+      padding: 10px;
+      backdrop-filter: blur(6px);
+      max-width: min(86vw, 320px);
+    }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; background: #fff; }
+    #hint { font-size: 12px; opacity: .8; margin-top: 6px; }
+    #debug {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      z-index: 10;
+      font-size: 12px;
+      color: #fff;
+      background: #000b;
+      border-radius: 8px;
+      padding: 8px 10px;
+      white-space: pre-line;
+      max-width: min(92vw, 420px);
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -16,15 +52,26 @@
     <button id="enable">Włącz sterowanie ruchem telefonu</button>
     <div id="hint">
       Gesty: 1 palec = obrót (Orbit), pinch = przybliż/oddal (dolly).<br/>
-      Po włączeniu: ruch telefonu nadpisuje obrót kamery.
+      Po włączeniu: ruch telefonu steruje obrotem kamery, pinch nadal działa.
     </div>
   </div>
   <canvas id="c"></canvas>
+  <div id="debug">JS OK</div>
 
   <script type="module">
     import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
     import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
-    import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+
+    const debugEl = document.getElementById("debug");
+    const setDebug = (text) => { debugEl.textContent = text; };
+    const appendError = (text) => { debugEl.textContent = `${debugEl.textContent}\n${text}`; };
+
+    window.addEventListener("error", (event) => {
+      appendError(`ERROR: ${event.message}`);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      appendError(`PROMISE: ${event.reason?.message || event.reason || "unknown"}`);
+    });
 
     const canvas = document.getElementById("c");
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -38,6 +85,7 @@
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    controls.enablePan = false;
     controls.target.set(0, 1, 0);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1.0));
@@ -45,71 +93,119 @@
     dir.position.set(3, 5, 2);
     scene.add(dir);
 
-    // Placeholder model jeśli nie podasz GLB:
     const grid = new THREE.GridHelper(10, 10);
     scene.add(grid);
     const box = new THREE.Mesh(
-      new THREE.BoxGeometry(1,1,1),
+      new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshStandardMaterial({ color: 0x4a90e2, metalness: 0.1, roughness: 0.7 })
     );
     box.position.y = 0.5;
     scene.add(box);
 
-    // Jeśli masz swój GLB — podmień URL:
-    // new GLTFLoader().load("https://twoj-host/model.glb", (g)=>{ scene.add(g.scene); });
-
-    function resize(){
-      const w = innerWidth, h = innerHeight;
+    function resize() {
+      const w = innerWidth;
+      const h = innerHeight;
       renderer.setSize(w, h, false);
-      camera.aspect = w/h;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
     }
-    addEventListener("resize", resize); resize();
+    addEventListener("resize", resize);
+    resize();
 
-    // --- Gyro rotate (yaw/pitch) ---
     let gyroEnabled = false;
     let yaw0 = 0;
     let haveBaseline = false;
+    let latestEuler = "-";
+    let sensor = null;
 
-    function deg2rad(d){ return d * Math.PI / 180; }
+    const deg2rad = (d) => d * Math.PI / 180;
 
-    // Mapujemy (alpha,beta,gamma) -> yaw/pitch w prosty sposób (wystarczające do demo).
-    // Produkcyjnie warto użyć porządnej konwersji na quaternion (z uwzględnieniem orientacji ekranu).
-    function onDeviceOrientation(e){
-      if (!gyroEnabled) return;
-      const alpha = e.alpha ?? 0; // z
-      const beta  = e.beta  ?? 0; // x
-      const gamma = e.gamma ?? 0; // y
+    function setGyroDebug(label) {
+      setDebug(`JS OK\nGyro: ${label}\n${latestEuler}`);
+    }
 
-      const yaw = deg2rad(alpha);
-      const pitch = deg2rad(beta);
-
-      if (!haveBaseline) { yaw0 = yaw; haveBaseline = true; }
-
-      // Nadpisujemy tylko obrót, zoom zostaje z OrbitControls
+    function applyGyroYawPitch(yaw, pitch) {
+      if (!haveBaseline) {
+        yaw0 = yaw;
+        haveBaseline = true;
+      }
       camera.rotation.order = "YXZ";
       camera.rotation.y = -(yaw - yaw0);
       camera.rotation.x = -pitch * 0.6;
+      latestEuler = `yaw=${(yaw * 180 / Math.PI).toFixed(1)}° pitch=${(pitch * 180 / Math.PI).toFixed(1)}°`;
+      setGyroDebug("ON");
     }
 
-    document.getElementById("enable").addEventListener("click", async ()=>{
-      // Na Android Chrome zwykle nie trzeba requestPermission (to głównie iOS),
-      // ale obsługujemy, jeśli API istnieje.
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        const p = await DeviceOrientationEvent.requestPermission();
-        if (p !== "granted") return;
+    function onDeviceOrientation(e) {
+      if (!gyroEnabled) return;
+      const alpha = e.alpha ?? 0;
+      const beta = e.beta ?? 0;
+      const gamma = e.gamma ?? 0;
+      latestEuler = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
+      applyGyroYawPitch(deg2rad(alpha), deg2rad(beta));
+    }
+
+    function startAbsoluteOrientationSensor() {
+      if (!("AbsoluteOrientationSensor" in window)) return false;
+      try {
+        sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: "device" });
+        sensor.addEventListener("reading", () => {
+          if (!gyroEnabled || !sensor.quaternion) return;
+          const q = sensor.quaternion;
+          const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(q[0], q[1], q[2], q[3]), "YXZ");
+          latestEuler = `sensor yaw=${THREE.MathUtils.radToDeg(e.y).toFixed(1)} beta=${THREE.MathUtils.radToDeg(e.x).toFixed(1)}`;
+          applyGyroYawPitch(e.y, e.x);
+        });
+        sensor.addEventListener("error", (event) => {
+          appendError(`SENSOR: ${event.error?.name || "error"}`);
+        });
+        sensor.start();
+        return true;
+      } catch (error) {
+        appendError(`SENSOR START: ${error.message || error}`);
+        return false;
       }
+    }
+
+    document.getElementById("enable").addEventListener("click", async () => {
+      controls.enableRotate = false;
       gyroEnabled = true;
       haveBaseline = false;
-      window.addEventListener("deviceorientation", onDeviceOrientation, true);
+
+      if (typeof DeviceOrientationEvent !== "undefined") {
+        if (typeof DeviceOrientationEvent.requestPermission === "function") {
+          try {
+            const p = await DeviceOrientationEvent.requestPermission();
+            if (p !== "granted") {
+              controls.enableRotate = true;
+              gyroEnabled = false;
+              setGyroDebug("brak zgody");
+              return;
+            }
+          } catch (error) {
+            appendError(`PERMISSION: ${error.message || error}`);
+          }
+        }
+        window.addEventListener("deviceorientation", onDeviceOrientation, true);
+        setGyroDebug("ON (deviceorientation)");
+      } else if (startAbsoluteOrientationSensor()) {
+        setGyroDebug("ON (AbsoluteOrientationSensor)");
+      } else {
+        controls.enableRotate = true;
+        gyroEnabled = false;
+        setGyroDebug("niedostępny — gesty aktywne");
+      }
+
       document.getElementById("enable").textContent = "Ruch telefonu: WŁĄCZONE";
     });
 
-    function animate(){
+    function animate() {
       controls.update();
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
     }
+
+    setGyroDebug("OFF");
     animate();
   </script>
 </body>
