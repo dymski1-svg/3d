@@ -1,212 +1,521 @@
 <!doctype html>
 <html lang="pl">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
-  <title>Demo 1 — Gyro rotate + pinch dolly</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>Demo 3D - offline viewer</title>
   <style>
-    html, body {
+    :root {
+      color-scheme: light;
+      font-family: system-ui, sans-serif;
+      background: #dfe7f2;
+    }
+
+    html,
+    body {
       margin: 0;
       width: 100%;
       height: 100%;
       overflow: hidden;
-      font-family: system-ui;
+      background:
+        radial-gradient(circle at top, #f8fbff 0%, #dfe7f2 38%, #aebed4 100%);
     }
-    #c {
+
+    body {
+      position: relative;
+    }
+
+    #viewer {
       width: 100vw;
       height: 100vh;
       display: block;
       touch-action: none;
     }
+
     #ui {
       position: fixed;
-      left: 12px;
       top: 12px;
-      z-index: 10;
-      background: #fff9;
-      border-radius: 12px;
-      padding: 10px;
-      backdrop-filter: blur(6px);
-      max-width: min(86vw, 320px);
+      left: 12px;
+      z-index: 20;
+      max-width: min(88vw, 360px);
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 10px 30px rgba(15, 31, 51, 0.16);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
-    button { padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; background: #fff; }
-    #hint { font-size: 12px; opacity: .8; margin-top: 6px; }
+
+    #ui strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      color: #16263b;
+    }
+
+    #toggleGyro {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(135deg, #0a5bd8 0%, #1480ff 100%);
+      box-shadow: 0 8px 18px rgba(10, 91, 216, 0.25);
+    }
+
+    #hint {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #37475d;
+    }
+
     #debug {
       position: fixed;
       left: 12px;
       bottom: 12px;
-      z-index: 10;
-      font-size: 12px;
-      color: #fff;
-      background: #000b;
-      border-radius: 8px;
-      padding: 8px 10px;
-      white-space: pre-line;
-      max-width: min(92vw, 420px);
+      z-index: 20;
+      max-width: min(92vw, 460px);
+      min-width: 220px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(7, 14, 23, 0.8);
+      color: #e9f1ff;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
       pointer-events: none;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
     }
   </style>
 </head>
 <body>
   <div id="ui">
-    <button id="enable">Włącz sterowanie ruchem telefonu</button>
+    <strong>Offline 3D viewer</strong>
+    <button id="toggleGyro" type="button">Wlacz sterowanie ruchem telefonu</button>
     <div id="hint">
-      Gesty: 1 palec = obrót (Orbit), pinch = przybliż/oddal (dolly).<br/>
-      Po włączeniu: ruch telefonu steruje obrotem kamery, pinch nadal działa.
+      1 palec: orbit, pinch: przybliz/oddal.<br />
+      Gdy gyro jest wlaczone, obracanie palcem jest wylaczone, ale pinch nadal dziala.
     </div>
   </div>
-  <canvas id="c"></canvas>
-  <div id="debug">JS OK</div>
+  <canvas id="viewer"></canvas>
+  <pre id="debug">JS OK
+Init...</pre>
 
-  <script type="module">
-    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-    import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+  <script>
+    (() => {
+      const canvas = document.getElementById("viewer");
+      const ctx = canvas.getContext("2d");
+      const debugEl = document.getElementById("debug");
+      const toggleGyroButton = document.getElementById("toggleGyro");
 
-    const debugEl = document.getElementById("debug");
-    const setDebug = (text) => { debugEl.textContent = text; };
-    const appendError = (text) => { debugEl.textContent = `${debugEl.textContent}\n${text}`; };
+      const state = {
+        orbitYaw: 0.72,
+        orbitPitch: -0.38,
+        minPitch: -1.25,
+        maxPitch: 1.25,
+        distance: 6.8,
+        minDistance: 3.2,
+        maxDistance: 13,
+        gyroEnabled: false,
+        gyroSource: "OFF",
+        gyroText: "sensor idle",
+        gestureText: "ready",
+        errorText: "",
+        deviceOrientationListening: false,
+        sensor: null,
+        baselineAlpha: null,
+        activePointers: new Map(),
+        dragPointerId: null,
+        dragLastX: 0,
+        dragLastY: 0,
+        pinchDistance: 0,
+        pinchStartDistance: 0,
+      };
 
-    window.addEventListener("error", (event) => {
-      appendError(`ERROR: ${event.message}`);
-    });
-    window.addEventListener("unhandledrejection", (event) => {
-      appendError(`PROMISE: ${event.reason?.message || event.reason || "unknown"}`);
-    });
+      const cubeVertices = [
+        [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+        [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
+      ];
 
-    const canvas = document.getElementById("c");
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(devicePixelRatio);
+      const cubeEdges = [
+        [0, 1], [1, 2], [2, 3], [3, 0],
+        [4, 5], [5, 6], [6, 7], [7, 4],
+        [0, 4], [1, 5], [2, 6], [3, 7],
+      ];
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf2f2f2);
+      const cubeFaces = [
+        [0, 1, 2, 3],
+        [4, 5, 6, 7],
+        [0, 1, 5, 4],
+        [2, 3, 7, 6],
+        [1, 2, 6, 5],
+        [0, 3, 7, 4],
+      ];
 
-    const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 500);
-    camera.position.set(0, 1.2, 3);
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.enablePan = false;
-    controls.target.set(0, 1, 0);
-
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1.0));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
-    dir.position.set(3, 5, 2);
-    scene.add(dir);
-
-    const grid = new THREE.GridHelper(10, 10);
-    scene.add(grid);
-    const box = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x4a90e2, metalness: 0.1, roughness: 0.7 })
-    );
-    box.position.y = 0.5;
-    scene.add(box);
-
-    function resize() {
-      const w = innerWidth;
-      const h = innerHeight;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    }
-    addEventListener("resize", resize);
-    resize();
-
-    let gyroEnabled = false;
-    let yaw0 = 0;
-    let haveBaseline = false;
-    let latestEuler = "-";
-    let sensor = null;
-
-    const deg2rad = (d) => d * Math.PI / 180;
-
-    function setGyroDebug(label) {
-      setDebug(`JS OK\nGyro: ${label}\n${latestEuler}`);
-    }
-
-    function applyGyroYawPitch(yaw, pitch) {
-      if (!haveBaseline) {
-        yaw0 = yaw;
-        haveBaseline = true;
+      const gridLines = [];
+      for (let i = -5; i <= 5; i += 1) {
+        gridLines.push([[i, 0, -5], [i, 0, 5]]);
+        gridLines.push([[-5, 0, i], [5, 0, i]]);
       }
-      camera.rotation.order = "YXZ";
-      camera.rotation.y = -(yaw - yaw0);
-      camera.rotation.x = -pitch * 0.6;
-      latestEuler = `yaw=${(yaw * 180 / Math.PI).toFixed(1)}° pitch=${(pitch * 180 / Math.PI).toFixed(1)}°`;
-      setGyroDebug("ON");
-    }
 
-    function onDeviceOrientation(e) {
-      if (!gyroEnabled) return;
-      const alpha = e.alpha ?? 0;
-      const beta = e.beta ?? 0;
-      const gamma = e.gamma ?? 0;
-      latestEuler = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
-      applyGyroYawPitch(deg2rad(alpha), deg2rad(beta));
-    }
-
-    function startAbsoluteOrientationSensor() {
-      if (!("AbsoluteOrientationSensor" in window)) return false;
-      try {
-        sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: "device" });
-        sensor.addEventListener("reading", () => {
-          if (!gyroEnabled || !sensor.quaternion) return;
-          const q = sensor.quaternion;
-          const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(q[0], q[1], q[2], q[3]), "YXZ");
-          latestEuler = `sensor yaw=${THREE.MathUtils.radToDeg(e.y).toFixed(1)} beta=${THREE.MathUtils.radToDeg(e.x).toFixed(1)}`;
-          applyGyroYawPitch(e.y, e.x);
-        });
-        sensor.addEventListener("error", (event) => {
-          appendError(`SENSOR: ${event.error?.name || "error"}`);
-        });
-        sensor.start();
-        return true;
-      } catch (error) {
-        appendError(`SENSOR START: ${error.message || error}`);
-        return false;
+      function appendError(message) {
+        const next = String(message);
+        state.errorText = state.errorText ? `${state.errorText}\n${next}` : next;
+        updateDebug();
       }
-    }
 
-    document.getElementById("enable").addEventListener("click", async () => {
-      controls.enableRotate = false;
-      gyroEnabled = true;
-      haveBaseline = false;
+      function updateDebug() {
+        debugEl.textContent = [
+          "JS OK",
+          `Canvas: ${canvas.width}x${canvas.height} px`,
+          `Gyro: ${state.gyroEnabled ? "ON" : "OFF"} (${state.gyroSource})`,
+          `Sensor: ${state.gyroText}`,
+          `Orbit: yaw=${(state.orbitYaw * 57.2958).toFixed(1)} pitch=${(state.orbitPitch * 57.2958).toFixed(1)} dist=${state.distance.toFixed(2)}`,
+          `Gestures: ${state.gestureText}`,
+          state.errorText ? `Errors:\n${state.errorText}` : "Errors: none",
+        ].join("\n");
+      }
 
-      if (typeof DeviceOrientationEvent !== "undefined") {
-        if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      window.addEventListener("error", (event) => {
+        appendError(`ERROR: ${event.message || "unknown"}`);
+      });
+
+      window.addEventListener("unhandledrejection", (event) => {
+        const reason = event.reason && event.reason.message ? event.reason.message : event.reason;
+        appendError(`PROMISE: ${reason || "unknown rejection"}`);
+      });
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function rotateX(point, angle) {
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        return [point[0], point[1] * c - point[2] * s, point[1] * s + point[2] * c];
+      }
+
+      function rotateY(point, angle) {
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        return [point[0] * c + point[2] * s, point[1], -point[0] * s + point[2] * c];
+      }
+
+      function worldToCamera(point) {
+        const translated = [point[0], point[1] - 1.15, point[2] - state.distance];
+        const pitched = rotateX(translated, -state.orbitPitch);
+        return rotateY(pitched, -state.orbitYaw);
+      }
+
+      function project(point) {
+        const cam = worldToCamera(point);
+        const z = -cam[2];
+        if (z <= 0.1) {
+          return null;
+        }
+        const focal = Math.min(canvas.width, canvas.height) * 0.92;
+        return {
+          x: canvas.width * 0.5 + (cam[0] / z) * focal,
+          y: canvas.height * 0.5 - (cam[1] / z) * focal,
+          depth: z,
+        };
+      }
+
+      function drawBackground() {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, "#f8fbff");
+        gradient.addColorStop(0.45, "#dbe5f2");
+        gradient.addColorStop(1, "#93a9c5");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      function drawGrid() {
+        ctx.lineWidth = 1;
+        for (const [a, b] of gridLines) {
+          const pa = project(a);
+          const pb = project(b);
+          if (!pa || !pb) {
+            continue;
+          }
+          const alpha = a[0] === 0 || a[2] === 0 ? 0.45 : 0.18;
+          ctx.strokeStyle = `rgba(25, 49, 79, ${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+        }
+      }
+
+      function drawCube() {
+        const projected = cubeVertices.map((vertex) => project([vertex[0], vertex[1] + 1.05, vertex[2]]));
+        const faceDepths = cubeFaces.map((face) => {
+          const points = face.map((index) => worldToCamera([cubeVertices[index][0], cubeVertices[index][1] + 1.05, cubeVertices[index][2]]));
+          const avgDepth = points.reduce((sum, point) => sum + (-point[2]), 0) / points.length;
+          return { face, avgDepth };
+        }).sort((a, b) => b.avgDepth - a.avgDepth);
+
+        for (const item of faceDepths) {
+          const poly = item.face.map((index) => projected[index]);
+          if (poly.some((point) => !point)) {
+            continue;
+          }
+          ctx.beginPath();
+          ctx.moveTo(poly[0].x, poly[0].y);
+          for (let i = 1; i < poly.length; i += 1) {
+            ctx.lineTo(poly[i].x, poly[i].y);
+          }
+          ctx.closePath();
+          const shade = clamp(0.25 + item.avgDepth * 0.05, 0.25, 0.65);
+          ctx.fillStyle = `rgba(29, 115, 230, ${shade})`;
+          ctx.fill();
+        }
+
+        ctx.strokeStyle = "#0d2d52";
+        ctx.lineWidth = 2;
+        for (const [start, end] of cubeEdges) {
+          const a = projected[start];
+          const b = projected[end];
+          if (!a || !b) {
+            continue;
+          }
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+
+      function resizeCanvas() {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const width = Math.round(window.innerWidth * dpr);
+        const height = Math.round(window.innerHeight * dpr);
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        canvas.style.width = `${window.innerWidth}px`;
+        canvas.style.height = `${window.innerHeight}px`;
+        updateDebug();
+      }
+
+      function render() {
+        drawBackground();
+        drawGrid();
+        drawCube();
+        ctx.fillStyle = "rgba(11, 25, 44, 0.7)";
+        ctx.font = `${Math.max(14, canvas.width * 0.014)}px system-ui, sans-serif`;
+        ctx.fillText("Offline grid + cube demo", 24, 40);
+        requestAnimationFrame(render);
+      }
+
+      function setGestureText(text) {
+        state.gestureText = text;
+        updateDebug();
+      }
+
+      function pointerDistance() {
+        const pointers = [...state.activePointers.values()];
+        if (pointers.length < 2) {
+          return 0;
+        }
+        return Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
+      }
+
+      canvas.addEventListener("pointerdown", (event) => {
+        canvas.setPointerCapture(event.pointerId);
+        state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (state.activePointers.size === 1) {
+          state.dragPointerId = event.pointerId;
+          state.dragLastX = event.clientX;
+          state.dragLastY = event.clientY;
+          setGestureText(state.gyroEnabled ? "pinch only while gyro ON" : "orbit start");
+        } else if (state.activePointers.size === 2) {
+          state.dragPointerId = null;
+          state.pinchStartDistance = pointerDistance();
+          state.pinchDistance = state.pinchStartDistance;
+          setGestureText("pinch start");
+        }
+      });
+
+      canvas.addEventListener("pointermove", (event) => {
+        if (!state.activePointers.has(event.pointerId)) {
+          return;
+        }
+        state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (state.activePointers.size === 2) {
+          const nextDistance = pointerDistance();
+          if (state.pinchDistance > 0) {
+            const delta = nextDistance - state.pinchDistance;
+            state.distance = clamp(state.distance - delta * 0.015, state.minDistance, state.maxDistance);
+          }
+          state.pinchDistance = nextDistance;
+          setGestureText(`pinch ${state.distance.toFixed(2)}`);
+          return;
+        }
+        if (state.activePointers.size === 1 && state.dragPointerId === event.pointerId && !state.gyroEnabled) {
+          const dx = event.clientX - state.dragLastX;
+          const dy = event.clientY - state.dragLastY;
+          state.dragLastX = event.clientX;
+          state.dragLastY = event.clientY;
+          state.orbitYaw -= dx * 0.0085;
+          state.orbitPitch = clamp(state.orbitPitch - dy * 0.0085, state.minPitch, state.maxPitch);
+          setGestureText(`orbit dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
+        }
+      });
+
+      function clearPointer(pointerId) {
+        state.activePointers.delete(pointerId);
+        if (state.dragPointerId === pointerId) {
+          state.dragPointerId = null;
+        }
+        if (state.activePointers.size === 1) {
+          const [remainingId, remaining] = state.activePointers.entries().next().value;
+          state.dragPointerId = remainingId;
+          state.dragLastX = remaining.x;
+          state.dragLastY = remaining.y;
+        }
+        if (state.activePointers.size < 2) {
+          state.pinchDistance = 0;
+        }
+        setGestureText(state.activePointers.size ? "gesture continue" : "ready");
+      }
+
+      canvas.addEventListener("pointerup", (event) => clearPointer(event.pointerId));
+      canvas.addEventListener("pointercancel", (event) => clearPointer(event.pointerId));
+
+      function applyOrientation(alpha, beta, gamma) {
+        if (!Number.isFinite(alpha) || !Number.isFinite(beta) || !Number.isFinite(gamma)) {
+          state.gyroText = "waiting for valid orientation";
+          updateDebug();
+          return;
+        }
+        if (state.baselineAlpha === null) {
+          state.baselineAlpha = alpha;
+        }
+        const yaw = (alpha - state.baselineAlpha) * Math.PI / 180;
+        const pitch = clamp(beta * Math.PI / 180, state.minPitch, state.maxPitch);
+        state.orbitYaw = yaw;
+        state.orbitPitch = pitch * 0.6;
+        state.gyroText = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
+        updateDebug();
+      }
+
+      function handleDeviceOrientation(event) {
+        if (!state.gyroEnabled) {
+          return;
+        }
+        applyOrientation(event.alpha ?? NaN, event.beta ?? NaN, event.gamma ?? NaN);
+      }
+
+      function stopGyro() {
+        state.gyroEnabled = false;
+        state.gyroSource = "OFF";
+        state.gyroText = "sensor idle";
+        state.baselineAlpha = null;
+        if (state.deviceOrientationListening) {
+          window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
+          state.deviceOrientationListening = false;
+        }
+        if (state.sensor) {
           try {
-            const p = await DeviceOrientationEvent.requestPermission();
-            if (p !== "granted") {
-              controls.enableRotate = true;
-              gyroEnabled = false;
-              setGyroDebug("brak zgody");
+            state.sensor.stop();
+          } catch (error) {
+            appendError(`SENSOR STOP: ${error.message || error}`);
+          }
+          state.sensor = null;
+        }
+        toggleGyroButton.textContent = "Wlacz sterowanie ruchem telefonu";
+        updateDebug();
+      }
+
+      function startAbsoluteOrientationSensor() {
+        if (!("AbsoluteOrientationSensor" in window)) {
+          return false;
+        }
+        try {
+          const sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: "device" });
+          sensor.addEventListener("reading", () => {
+            if (!state.gyroEnabled || !sensor.quaternion) {
               return;
             }
-          } catch (error) {
-            appendError(`PERMISSION: ${error.message || error}`);
-          }
+            const q = sensor.quaternion;
+            const qw = q[3];
+            const qx = q[0];
+            const qy = q[1];
+            const qz = q[2];
+            const yaw = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)) * 180 / Math.PI;
+            const pitch = Math.asin(clamp(2 * (qw * qy - qz * qx), -1, 1)) * 180 / Math.PI;
+            applyOrientation(yaw, pitch, 0);
+          });
+          sensor.addEventListener("error", (event) => {
+            appendError(`SENSOR: ${event.error && event.error.name ? event.error.name : "unknown"}`);
+          });
+          sensor.start();
+          state.sensor = sensor;
+          state.gyroSource = "AbsoluteOrientationSensor";
+          return true;
+        } catch (error) {
+          appendError(`SENSOR START: ${error.message || error}`);
+          return false;
         }
-        window.addEventListener("deviceorientation", onDeviceOrientation, true);
-        setGyroDebug("ON (deviceorientation)");
-      } else if (startAbsoluteOrientationSensor()) {
-        setGyroDebug("ON (AbsoluteOrientationSensor)");
-      } else {
-        controls.enableRotate = true;
-        gyroEnabled = false;
-        setGyroDebug("niedostępny — gesty aktywne");
       }
 
-      document.getElementById("enable").textContent = "Ruch telefonu: WŁĄCZONE";
-    });
+      async function startGyro() {
+        state.baselineAlpha = null;
+        if (typeof DeviceOrientationEvent !== "undefined") {
+          if (typeof DeviceOrientationEvent.requestPermission === "function") {
+            const permission = await DeviceOrientationEvent.requestPermission();
+            if (permission !== "granted") {
+              throw new Error(`permission ${permission}`);
+            }
+          }
+          if (!state.deviceOrientationListening) {
+            window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+            state.deviceOrientationListening = true;
+          }
+          state.gyroEnabled = true;
+          state.gyroSource = "deviceorientation";
+          state.gyroText = "waiting for orientation event";
+          toggleGyroButton.textContent = "Wylacz sterowanie ruchem telefonu";
+          updateDebug();
+          return;
+        }
+        if (startAbsoluteOrientationSensor()) {
+          state.gyroEnabled = true;
+          state.gyroText = "waiting for sensor reading";
+          toggleGyroButton.textContent = "Wylacz sterowanie ruchem telefonu";
+          updateDebug();
+          return;
+        }
+        throw new Error("brak dostepnego API sensorow");
+      }
 
-    function animate() {
-      controls.update();
-      renderer.render(scene, camera);
-      requestAnimationFrame(animate);
-    }
+      toggleGyroButton.addEventListener("click", async () => {
+        if (state.gyroEnabled) {
+          stopGyro();
+          return;
+        }
+        try {
+          await startGyro();
+        } catch (error) {
+          state.gyroEnabled = false;
+          state.gyroSource = "OFF";
+          state.gyroText = "gyro unavailable";
+          toggleGyroButton.textContent = "Wlacz sterowanie ruchem telefonu";
+          appendError(`GYRO: ${error.message || error}`);
+          updateDebug();
+        }
+      });
 
-    setGyroDebug("OFF");
-    animate();
+      window.addEventListener("resize", resizeCanvas);
+
+      resizeCanvas();
+      updateDebug();
+      render();
+    })();
   </script>
 </body>
 </html>
