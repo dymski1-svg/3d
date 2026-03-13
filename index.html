@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
-  <title>Demo 3D - offline viewer</title>
+  <title>Minimal GLB Viewer</title>
   <style>
     :root {
       color-scheme: light;
       font-family: system-ui, sans-serif;
-      background: #dfe7f2;
+      background: #d9e1ec;
     }
 
     html,
@@ -18,7 +18,7 @@
       height: 100%;
       overflow: hidden;
       background:
-        radial-gradient(circle at top, #f8fbff 0%, #dfe7f2 38%, #aebed4 100%);
+        radial-gradient(circle at top, #f7fbff 0%, #dce6f3 42%, #a5b5c9 100%);
     }
 
     body {
@@ -26,9 +26,9 @@
     }
 
     #viewer {
+      display: block;
       width: 100vw;
       height: 100vh;
-      display: block;
       touch-action: none;
     }
 
@@ -37,39 +37,77 @@
       top: 12px;
       left: 12px;
       z-index: 20;
-      max-width: min(88vw, 360px);
+      max-width: min(92vw, 380px);
       padding: 12px 14px;
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.78);
-      box-shadow: 0 10px 30px rgba(15, 31, 51, 0.16);
+      background: rgba(255, 255, 255, 0.8);
+      box-shadow: 0 14px 34px rgba(15, 31, 51, 0.18);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
     }
 
     #ui strong {
       display: block;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       font-size: 14px;
-      color: #16263b;
+      color: #15263d;
     }
 
-    #toggleGyro {
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .button,
+    #fileInput::file-selector-button {
       appearance: none;
       border: 0;
       border-radius: 999px;
       padding: 10px 14px;
       font: inherit;
+      font-size: 13px;
       font-weight: 700;
       color: #fff;
-      background: linear-gradient(135deg, #0a5bd8 0%, #1480ff 100%);
-      box-shadow: 0 8px 18px rgba(10, 91, 216, 0.25);
+      background: linear-gradient(135deg, #095cd8 0%, #1280ff 100%);
+      box-shadow: 0 8px 18px rgba(10, 91, 216, 0.24);
+      cursor: pointer;
+    }
+
+    #fileInput {
+      max-width: 100%;
+      font: inherit;
+      color: #213248;
     }
 
     #hint {
       margin-top: 10px;
       font-size: 12px;
       line-height: 1.45;
-      color: #37475d;
+      color: #3a4a5f;
+    }
+
+    #dropZone {
+      position: fixed;
+      inset: 0;
+      z-index: 15;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      color: #103157;
+      background: rgba(235, 243, 252, 0.82);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    #dropZone.visible {
+      display: flex;
     }
 
     #debug {
@@ -77,12 +115,12 @@
       left: 12px;
       bottom: 12px;
       z-index: 20;
-      max-width: min(92vw, 460px);
-      min-width: 220px;
+      min-width: 240px;
+      max-width: min(94vw, 520px);
       padding: 10px 12px;
       border-radius: 12px;
-      background: rgba(7, 14, 23, 0.8);
-      color: #e9f1ff;
+      background: rgba(7, 14, 23, 0.82);
+      color: #eaf2ff;
       font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
       white-space: pre-wrap;
       pointer-events: none;
@@ -92,100 +130,108 @@
 </head>
 <body>
   <div id="ui">
-    <strong>Offline 3D viewer</strong>
-    <button id="toggleGyro" type="button">Wlacz sterowanie ruchem telefonu</button>
+    <strong>Minimal GLB Viewer</strong>
+    <div id="controls">
+      <input id="fileInput" type="file" accept=".glb,model/gltf-binary" />
+      <button id="resetView" class="button" type="button">Reset view</button>
+    </div>
     <div id="hint">
-      1 palec: orbit, pinch: przybliz/oddal.<br />
-      Gdy gyro jest wlaczone, obracanie palcem jest wylaczone, ale pinch nadal dziala.
+      Load GLB albo przeciagnij plik na strone. Bez modelu widoczny jest testowy grid + cube.
+      Gesty: 1 palec orbit, pinch dolly/zoom.
     </div>
   </div>
   <canvas id="viewer"></canvas>
+  <div id="dropZone">Upusc plik .glb</div>
   <pre id="debug">JS OK
 Init...</pre>
 
-  <script>
-    (() => {
-      const canvas = document.getElementById("viewer");
-      const ctx = canvas.getContext("2d");
-      const debugEl = document.getElementById("debug");
-      const toggleGyroButton = document.getElementById("toggleGyro");
+  <script type="module">
+    const canvas = document.getElementById("viewer");
+    const debugEl = document.getElementById("debug");
+    const fileInput = document.getElementById("fileInput");
+    const resetViewButton = document.getElementById("resetView");
+    const dropZone = document.getElementById("dropZone");
 
-      const state = {
-        orbitYaw: 0.72,
-        orbitPitch: -0.38,
-        minPitch: -1.25,
-        maxPitch: 1.25,
-        distance: 6.8,
-        minDistance: 3.2,
-        maxDistance: 13,
-        gyroEnabled: false,
-        gyroSource: "OFF",
-        gyroText: "sensor idle",
-        gestureText: "ready",
-        errorText: "",
-        deviceOrientationListening: false,
-        sensor: null,
-        baselineAlpha: null,
-        activePointers: new Map(),
-        dragPointerId: null,
-        dragLastX: 0,
-        dragLastY: 0,
-        pinchDistance: 0,
-        pinchStartDistance: 0,
-      };
+    const requiredVendorFiles = [
+      "./vendor/three/three.module.js",
+      "./vendor/three/OrbitControls.js",
+      "./vendor/three/GLTFLoader.js",
+    ];
+
+    const state = {
+      mode: "boot",
+      renderer: "2D fallback",
+      canvasSize: `${window.innerWidth}x${window.innerHeight}`,
+      currentModel: "fallback cube",
+      vendorStatus: "checking local vendor files",
+      errorLines: [],
+      lastObjectURL: null,
+    };
+
+    function appendError(message) {
+      const next = String(message);
+      state.errorLines.push(next);
+      state.errorLines = state.errorLines.slice(-8);
+      updateDebug();
+    }
+
+    function updateDebug(extraLines = []) {
+      debugEl.textContent = [
+        "JS OK",
+        `Canvas: ${state.canvasSize}`,
+        `Renderer: ${state.renderer}`,
+        `Mode: ${state.mode}`,
+        `Model: ${state.currentModel}`,
+        `Vendor: ${state.vendorStatus}`,
+        ...extraLines,
+        state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
+      ].join("\n");
+    }
+
+    window.addEventListener("error", (event) => {
+      appendError(`ERROR: ${event.message || "unknown"}`);
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event.reason && event.reason.message ? event.reason.message : event.reason;
+      appendError(`PROMISE: ${reason || "unknown rejection"}`);
+    });
+
+    async function findMissingVendorFiles() {
+      const checks = await Promise.all(requiredVendorFiles.map(async (path) => {
+        try {
+          const response = await fetch(path, { cache: "no-store" });
+          return response.ok ? null : path;
+        } catch (error) {
+          return path;
+        }
+      }));
+      return checks.filter(Boolean);
+    }
+
+    function initCanvasFallback(missingFiles) {
+      const ctx = canvas.getContext("2d");
+      state.mode = "fallback";
+      state.renderer = "2D fallback";
+      state.currentModel = "fallback cube";
+      state.vendorStatus = `missing ${missingFiles.length} vendor files`;
 
       const cubeVertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
       ];
-
       const cubeEdges = [
         [0, 1], [1, 2], [2, 3], [3, 0],
         [4, 5], [5, 6], [6, 7], [7, 4],
         [0, 4], [1, 5], [2, 6], [3, 7],
       ];
-
-      const cubeFaces = [
-        [0, 1, 2, 3],
-        [4, 5, 6, 7],
-        [0, 1, 5, 4],
-        [2, 3, 7, 6],
-        [1, 2, 6, 5],
-        [0, 3, 7, 4],
-      ];
-
       const gridLines = [];
       for (let i = -5; i <= 5; i += 1) {
         gridLines.push([[i, 0, -5], [i, 0, 5]]);
         gridLines.push([[-5, 0, i], [5, 0, i]]);
       }
 
-      function appendError(message) {
-        const next = String(message);
-        state.errorText = state.errorText ? `${state.errorText}\n${next}` : next;
-        updateDebug();
-      }
-
-      function updateDebug() {
-        debugEl.textContent = [
-          "JS OK",
-          `Canvas: ${canvas.width}x${canvas.height} px`,
-          `Gyro: ${state.gyroEnabled ? "ON" : "OFF"} (${state.gyroSource})`,
-          `Sensor: ${state.gyroText}`,
-          `Orbit: yaw=${(state.orbitYaw * 57.2958).toFixed(1)} pitch=${(state.orbitPitch * 57.2958).toFixed(1)} dist=${state.distance.toFixed(2)}`,
-          `Gestures: ${state.gestureText}`,
-          state.errorText ? `Errors:\n${state.errorText}` : "Errors: none",
-        ].join("\n");
-      }
-
-      window.addEventListener("error", (event) => {
-        appendError(`ERROR: ${event.message || "unknown"}`);
-      });
-
-      window.addEventListener("unhandledrejection", (event) => {
-        const reason = event.reason && event.reason.message ? event.reason.message : event.reason;
-        appendError(`PROMISE: ${reason || "unknown rejection"}`);
-      });
+      const camera = { yaw: 0.7, pitch: -0.42, distance: 6.6 };
 
       function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
@@ -204,35 +250,149 @@ Init...</pre>
       }
 
       function worldToCamera(point) {
-        const translated = [point[0], point[1] - 1.15, point[2] - state.distance];
-        const pitched = rotateX(translated, -state.orbitPitch);
-        return rotateY(pitched, -state.orbitYaw);
+        const translated = [point[0], point[1] - 1.1, point[2] - camera.distance];
+        return rotateY(rotateX(translated, -camera.pitch), -camera.yaw);
       }
 
       function project(point) {
-        const cam = worldToCamera(point);
-        const z = -cam[2];
+        const view = worldToCamera(point);
+        const z = -view[2];
         if (z <= 0.1) {
           return null;
         }
         const focal = Math.min(canvas.width, canvas.height) * 0.92;
         return {
-          x: canvas.width * 0.5 + (cam[0] / z) * focal,
-          y: canvas.height * 0.5 - (cam[1] / z) * focal,
-          depth: z,
+          x: canvas.width * 0.5 + (view[0] / z) * focal,
+          y: canvas.height * 0.5 - (view[1] / z) * focal,
         };
       }
 
-      function drawBackground() {
+      function resize() {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width = Math.round(window.innerWidth * dpr);
+        canvas.height = Math.round(window.innerHeight * dpr);
+        canvas.style.width = `${window.innerWidth}px`;
+        canvas.style.height = `${window.innerHeight}px`;
+        state.canvasSize = `${canvas.width}x${canvas.height} px`;
+        updateDebug([
+          "TODO:",
+          ...missingFiles.map((file) => `- add ${file}`),
+        ]);
+      }
+
+      let activePointers = new Map();
+      let lastDrag = null;
+      let pinchDistance = 0;
+
+      function pointerDistance() {
+        const points = [...activePointers.values()];
+        if (points.length < 2) {
+          return 0;
+        }
+        return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      }
+
+      canvas.onpointerdown = (event) => {
+        canvas.setPointerCapture(event.pointerId);
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (activePointers.size === 1) {
+          lastDrag = { x: event.clientX, y: event.clientY, id: event.pointerId };
+        }
+        if (activePointers.size === 2) {
+          pinchDistance = pointerDistance();
+        }
+      };
+
+      canvas.onpointermove = (event) => {
+        if (!activePointers.has(event.pointerId)) {
+          return;
+        }
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (activePointers.size === 2) {
+          const next = pointerDistance();
+          if (pinchDistance > 0) {
+            camera.distance = clamp(camera.distance - (next - pinchDistance) * 0.015, 3, 12);
+          }
+          pinchDistance = next;
+          return;
+        }
+        if (activePointers.size === 1 && lastDrag && lastDrag.id === event.pointerId) {
+          const dx = event.clientX - lastDrag.x;
+          const dy = event.clientY - lastDrag.y;
+          lastDrag = { x: event.clientX, y: event.clientY, id: event.pointerId };
+          camera.yaw -= dx * 0.0085;
+          camera.pitch = clamp(camera.pitch - dy * 0.0085, -1.25, 1.25);
+        }
+      };
+
+      function clearPointer(pointerId) {
+        activePointers.delete(pointerId);
+        if (lastDrag && lastDrag.id === pointerId) {
+          lastDrag = null;
+        }
+        if (activePointers.size < 2) {
+          pinchDistance = 0;
+        }
+      }
+
+      canvas.onpointerup = (event) => clearPointer(event.pointerId);
+      canvas.onpointercancel = (event) => clearPointer(event.pointerId);
+
+      resetViewButton.onclick = () => {
+        camera.yaw = 0.7;
+        camera.pitch = -0.42;
+        camera.distance = 6.6;
+      };
+
+      fileInput.onchange = (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (file) {
+          appendError(`LOAD: missing local Three.js vendor files for ${file.name}`);
+        }
+      };
+
+      let dragDepth = 0;
+      function showDropZone(visible) {
+        dropZone.classList.toggle("visible", visible);
+      }
+
+      window.addEventListener("dragenter", (event) => {
+        event.preventDefault();
+        dragDepth += 1;
+        showDropZone(true);
+      });
+
+      window.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      });
+
+      window.addEventListener("dragleave", (event) => {
+        event.preventDefault();
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+          showDropZone(false);
+        }
+      });
+
+      window.addEventListener("drop", (event) => {
+        event.preventDefault();
+        dragDepth = 0;
+        showDropZone(false);
+        const file = [...(event.dataTransfer.files || [])].find((item) => item.name.toLowerCase().endsWith(".glb"));
+        if (file) {
+          appendError(`DROP: missing local Three.js vendor files for ${file.name}`);
+        }
+      });
+
+      function render() {
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
         gradient.addColorStop(0, "#f8fbff");
         gradient.addColorStop(0.45, "#dbe5f2");
         gradient.addColorStop(1, "#93a9c5");
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
 
-      function drawGrid() {
         ctx.lineWidth = 1;
         for (const [a, b] of gridLines) {
           const pa = project(a);
@@ -247,34 +407,10 @@ Init...</pre>
           ctx.lineTo(pb.x, pb.y);
           ctx.stroke();
         }
-      }
-
-      function drawCube() {
-        const projected = cubeVertices.map((vertex) => project([vertex[0], vertex[1] + 1.05, vertex[2]]));
-        const faceDepths = cubeFaces.map((face) => {
-          const points = face.map((index) => worldToCamera([cubeVertices[index][0], cubeVertices[index][1] + 1.05, cubeVertices[index][2]]));
-          const avgDepth = points.reduce((sum, point) => sum + (-point[2]), 0) / points.length;
-          return { face, avgDepth };
-        }).sort((a, b) => b.avgDepth - a.avgDepth);
-
-        for (const item of faceDepths) {
-          const poly = item.face.map((index) => projected[index]);
-          if (poly.some((point) => !point)) {
-            continue;
-          }
-          ctx.beginPath();
-          ctx.moveTo(poly[0].x, poly[0].y);
-          for (let i = 1; i < poly.length; i += 1) {
-            ctx.lineTo(poly[i].x, poly[i].y);
-          }
-          ctx.closePath();
-          const shade = clamp(0.25 + item.avgDepth * 0.05, 0.25, 0.65);
-          ctx.fillStyle = `rgba(29, 115, 230, ${shade})`;
-          ctx.fill();
-        }
 
         ctx.strokeStyle = "#0d2d52";
         ctx.lineWidth = 2;
+        const projected = cubeVertices.map((vertex) => project([vertex[0], vertex[1] + 1.05, vertex[2]]));
         for (const [start, end] of cubeEdges) {
           const a = projected[start];
           const b = projected[end];
@@ -286,236 +422,260 @@ Init...</pre>
           ctx.lineTo(b.x, b.y);
           ctx.stroke();
         }
-      }
 
-      function resizeCanvas() {
-        const dpr = Math.max(1, window.devicePixelRatio || 1);
-        const width = Math.round(window.innerWidth * dpr);
-        const height = Math.round(window.innerHeight * dpr);
-        if (canvas.width !== width || canvas.height !== height) {
-          canvas.width = width;
-          canvas.height = height;
-        }
-        canvas.style.width = `${window.innerWidth}px`;
-        canvas.style.height = `${window.innerHeight}px`;
-        updateDebug();
-      }
-
-      function render() {
-        drawBackground();
-        drawGrid();
-        drawCube();
         ctx.fillStyle = "rgba(11, 25, 44, 0.7)";
         ctx.font = `${Math.max(14, canvas.width * 0.014)}px system-ui, sans-serif`;
-        ctx.fillText("Offline grid + cube demo", 24, 40);
+        ctx.fillText("Brak lokalnych plikow Three.js - fallback grid + cube", 24, 42);
         requestAnimationFrame(render);
       }
 
-      function setGestureText(text) {
-        state.gestureText = text;
-        updateDebug();
-      }
-
-      function pointerDistance() {
-        const pointers = [...state.activePointers.values()];
-        if (pointers.length < 2) {
-          return 0;
-        }
-        return Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
-      }
-
-      canvas.addEventListener("pointerdown", (event) => {
-        canvas.setPointerCapture(event.pointerId);
-        state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        if (state.activePointers.size === 1) {
-          state.dragPointerId = event.pointerId;
-          state.dragLastX = event.clientX;
-          state.dragLastY = event.clientY;
-          setGestureText(state.gyroEnabled ? "pinch only while gyro ON" : "orbit start");
-        } else if (state.activePointers.size === 2) {
-          state.dragPointerId = null;
-          state.pinchStartDistance = pointerDistance();
-          state.pinchDistance = state.pinchStartDistance;
-          setGestureText("pinch start");
-        }
-      });
-
-      canvas.addEventListener("pointermove", (event) => {
-        if (!state.activePointers.has(event.pointerId)) {
-          return;
-        }
-        state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        if (state.activePointers.size === 2) {
-          const nextDistance = pointerDistance();
-          if (state.pinchDistance > 0) {
-            const delta = nextDistance - state.pinchDistance;
-            state.distance = clamp(state.distance - delta * 0.015, state.minDistance, state.maxDistance);
-          }
-          state.pinchDistance = nextDistance;
-          setGestureText(`pinch ${state.distance.toFixed(2)}`);
-          return;
-        }
-        if (state.activePointers.size === 1 && state.dragPointerId === event.pointerId && !state.gyroEnabled) {
-          const dx = event.clientX - state.dragLastX;
-          const dy = event.clientY - state.dragLastY;
-          state.dragLastX = event.clientX;
-          state.dragLastY = event.clientY;
-          state.orbitYaw -= dx * 0.0085;
-          state.orbitPitch = clamp(state.orbitPitch - dy * 0.0085, state.minPitch, state.maxPitch);
-          setGestureText(`orbit dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
-        }
-      });
-
-      function clearPointer(pointerId) {
-        state.activePointers.delete(pointerId);
-        if (state.dragPointerId === pointerId) {
-          state.dragPointerId = null;
-        }
-        if (state.activePointers.size === 1) {
-          const [remainingId, remaining] = state.activePointers.entries().next().value;
-          state.dragPointerId = remainingId;
-          state.dragLastX = remaining.x;
-          state.dragLastY = remaining.y;
-        }
-        if (state.activePointers.size < 2) {
-          state.pinchDistance = 0;
-        }
-        setGestureText(state.activePointers.size ? "gesture continue" : "ready");
-      }
-
-      canvas.addEventListener("pointerup", (event) => clearPointer(event.pointerId));
-      canvas.addEventListener("pointercancel", (event) => clearPointer(event.pointerId));
-
-      function applyOrientation(alpha, beta, gamma) {
-        if (!Number.isFinite(alpha) || !Number.isFinite(beta) || !Number.isFinite(gamma)) {
-          state.gyroText = "waiting for valid orientation";
-          updateDebug();
-          return;
-        }
-        if (state.baselineAlpha === null) {
-          state.baselineAlpha = alpha;
-        }
-        const yaw = (alpha - state.baselineAlpha) * Math.PI / 180;
-        const pitch = clamp(beta * Math.PI / 180, state.minPitch, state.maxPitch);
-        state.orbitYaw = yaw;
-        state.orbitPitch = pitch * 0.6;
-        state.gyroText = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
-        updateDebug();
-      }
-
-      function handleDeviceOrientation(event) {
-        if (!state.gyroEnabled) {
-          return;
-        }
-        applyOrientation(event.alpha ?? NaN, event.beta ?? NaN, event.gamma ?? NaN);
-      }
-
-      function stopGyro() {
-        state.gyroEnabled = false;
-        state.gyroSource = "OFF";
-        state.gyroText = "sensor idle";
-        state.baselineAlpha = null;
-        if (state.deviceOrientationListening) {
-          window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
-          state.deviceOrientationListening = false;
-        }
-        if (state.sensor) {
-          try {
-            state.sensor.stop();
-          } catch (error) {
-            appendError(`SENSOR STOP: ${error.message || error}`);
-          }
-          state.sensor = null;
-        }
-        toggleGyroButton.textContent = "Wlacz sterowanie ruchem telefonu";
-        updateDebug();
-      }
-
-      function startAbsoluteOrientationSensor() {
-        if (!("AbsoluteOrientationSensor" in window)) {
-          return false;
-        }
-        try {
-          const sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: "device" });
-          sensor.addEventListener("reading", () => {
-            if (!state.gyroEnabled || !sensor.quaternion) {
-              return;
-            }
-            const q = sensor.quaternion;
-            const qw = q[3];
-            const qx = q[0];
-            const qy = q[1];
-            const qz = q[2];
-            const yaw = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)) * 180 / Math.PI;
-            const pitch = Math.asin(clamp(2 * (qw * qy - qz * qx), -1, 1)) * 180 / Math.PI;
-            applyOrientation(yaw, pitch, 0);
-          });
-          sensor.addEventListener("error", (event) => {
-            appendError(`SENSOR: ${event.error && event.error.name ? event.error.name : "unknown"}`);
-          });
-          sensor.start();
-          state.sensor = sensor;
-          state.gyroSource = "AbsoluteOrientationSensor";
-          return true;
-        } catch (error) {
-          appendError(`SENSOR START: ${error.message || error}`);
-          return false;
-        }
-      }
-
-      async function startGyro() {
-        state.baselineAlpha = null;
-        if (typeof DeviceOrientationEvent !== "undefined") {
-          if (typeof DeviceOrientationEvent.requestPermission === "function") {
-            const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission !== "granted") {
-              throw new Error(`permission ${permission}`);
-            }
-          }
-          if (!state.deviceOrientationListening) {
-            window.addEventListener("deviceorientation", handleDeviceOrientation, true);
-            state.deviceOrientationListening = true;
-          }
-          state.gyroEnabled = true;
-          state.gyroSource = "deviceorientation";
-          state.gyroText = "waiting for orientation event";
-          toggleGyroButton.textContent = "Wylacz sterowanie ruchem telefonu";
-          updateDebug();
-          return;
-        }
-        if (startAbsoluteOrientationSensor()) {
-          state.gyroEnabled = true;
-          state.gyroText = "waiting for sensor reading";
-          toggleGyroButton.textContent = "Wylacz sterowanie ruchem telefonu";
-          updateDebug();
-          return;
-        }
-        throw new Error("brak dostepnego API sensorow");
-      }
-
-      toggleGyroButton.addEventListener("click", async () => {
-        if (state.gyroEnabled) {
-          stopGyro();
-          return;
-        }
-        try {
-          await startGyro();
-        } catch (error) {
-          state.gyroEnabled = false;
-          state.gyroSource = "OFF";
-          state.gyroText = "gyro unavailable";
-          toggleGyroButton.textContent = "Wlacz sterowanie ruchem telefonu";
-          appendError(`GYRO: ${error.message || error}`);
-          updateDebug();
-        }
-      });
-
-      window.addEventListener("resize", resizeCanvas);
-
-      resizeCanvas();
-      updateDebug();
+      window.addEventListener("resize", resize);
+      resize();
       render();
-    })();
+    }
+
+    async function initThreeViewer() {
+      const THREE = await import("./vendor/three/three.module.js");
+      const { OrbitControls } = await import("./vendor/three/OrbitControls.js");
+      const { GLTFLoader } = await import("./vendor/three/GLTFLoader.js");
+
+      state.mode = "webgl";
+      state.renderer = "Three.js WebGLRenderer";
+      state.vendorStatus = "local vendor files OK";
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xdfe7f2);
+
+      const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 2000);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.enablePan = false;
+      controls.minDistance = 0.2;
+      controls.maxDistance = 500;
+      controls.target.set(0, 1, 0);
+
+      const ambient = new THREE.HemisphereLight(0xffffff, 0x5a6472, 1.4);
+      scene.add(ambient);
+
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+      keyLight.position.set(3, 6, 4);
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.45);
+      fillLight.position.set(-4, 3, -2);
+      scene.add(fillLight);
+
+      const fallbackGroup = new THREE.Group();
+      fallbackGroup.add(new THREE.GridHelper(10, 10, 0x33516f, 0x7c91ab));
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 })
+      );
+      cube.position.y = 0.5;
+      fallbackGroup.add(cube);
+      scene.add(fallbackGroup);
+
+      const loader = new GLTFLoader();
+      let currentRoot = null;
+      let defaultView = {
+        position: new THREE.Vector3(0, 1.6, 4.8),
+        target: new THREE.Vector3(0, 0.8, 0),
+      };
+
+      function updateCanvasSize() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        state.canvasSize = `${Math.round(width * renderer.getPixelRatio())}x${Math.round(height * renderer.getPixelRatio())} px`;
+        updateDebug();
+      }
+
+      function applyView(view) {
+        camera.position.copy(view.position);
+        controls.target.copy(view.target);
+        controls.update();
+      }
+
+      function setFallbackVisible(visible) {
+        fallbackGroup.visible = visible;
+        state.currentModel = visible ? "fallback cube" : state.currentModel;
+      }
+
+      function fitCameraToObject(object3D, makeDefault) {
+        const box = new THREE.Box3().setFromObject(object3D);
+        if (box.isEmpty()) {
+          return;
+        }
+
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+        const fitHeightDistance = maxDim / (2 * Math.tan((camera.fov * Math.PI / 180) / 2));
+        const fitWidthDistance = fitHeightDistance / camera.aspect;
+        const distance = 1.35 * Math.max(fitHeightDistance, fitWidthDistance);
+
+        const view = {
+          target: center.clone(),
+          position: center.clone().add(new THREE.Vector3(distance * 0.8, distance * 0.55, distance)),
+        };
+
+        applyView(view);
+        controls.minDistance = Math.max(maxDim * 0.1, 0.05);
+        controls.maxDistance = Math.max(distance * 8, 10);
+        if (makeDefault) {
+          defaultView = {
+            position: view.position.clone(),
+            target: view.target.clone(),
+          };
+        }
+      }
+
+      function resetView() {
+        applyView({
+          position: defaultView.position.clone(),
+          target: defaultView.target.clone(),
+        });
+        state.mode = currentRoot ? "showing GLB" : "fallback";
+        updateDebug();
+      }
+
+      function disposeCurrentModel() {
+        if (!currentRoot) {
+          return;
+        }
+        scene.remove(currentRoot);
+        currentRoot.traverse((node) => {
+          if (node.geometry) {
+            node.geometry.dispose();
+          }
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          for (const material of materials) {
+            if (material && typeof material.dispose === "function") {
+              material.dispose();
+            }
+          }
+        });
+        currentRoot = null;
+      }
+
+      async function loadGLBFile(file) {
+        if (!file) {
+          return;
+        }
+        if (!file.name.toLowerCase().endsWith(".glb")) {
+          appendError(`LOAD: unsupported file ${file.name}`);
+          return;
+        }
+
+        state.mode = "loading GLB";
+        state.currentModel = file.name;
+        updateDebug();
+
+        disposeCurrentModel();
+        setFallbackVisible(false);
+
+        if (state.lastObjectURL) {
+          URL.revokeObjectURL(state.lastObjectURL);
+        }
+        const objectURL = URL.createObjectURL(file);
+        state.lastObjectURL = objectURL;
+
+        try {
+          const gltf = await loader.loadAsync(objectURL);
+          const root = gltf.scene || gltf.scenes?.[0];
+          if (!root) {
+            throw new Error("GLB loaded without scene");
+          }
+
+          root.updateMatrixWorld(true);
+          const initialBox = new THREE.Box3().setFromObject(root);
+          const center = initialBox.getCenter(new THREE.Vector3());
+          root.position.sub(center);
+          root.updateMatrixWorld(true);
+
+          currentRoot = root;
+          scene.add(root);
+          fitCameraToObject(root, true);
+          state.mode = "showing GLB";
+          state.currentModel = file.name;
+          updateDebug();
+        } catch (error) {
+          appendError(`LOAD: ${error.message || error}`);
+          disposeCurrentModel();
+          setFallbackVisible(true);
+          resetView();
+        } finally {
+          URL.revokeObjectURL(objectURL);
+          state.lastObjectURL = null;
+        }
+      }
+
+      fileInput.addEventListener("change", (event) => {
+        const file = event.target.files && event.target.files[0];
+        loadGLBFile(file);
+      });
+
+      resetViewButton.addEventListener("click", resetView);
+
+      let dragDepth = 0;
+      function showDropZone(visible) {
+        dropZone.classList.toggle("visible", visible);
+      }
+
+      window.addEventListener("dragenter", (event) => {
+        event.preventDefault();
+        dragDepth += 1;
+        showDropZone(true);
+      });
+
+      window.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      });
+
+      window.addEventListener("dragleave", (event) => {
+        event.preventDefault();
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+          showDropZone(false);
+        }
+      });
+
+      window.addEventListener("drop", (event) => {
+        event.preventDefault();
+        dragDepth = 0;
+        showDropZone(false);
+        const file = [...(event.dataTransfer.files || [])].find((item) => item.name.toLowerCase().endsWith(".glb"));
+        if (!file) {
+          appendError("DROP: no .glb file found");
+          return;
+        }
+        loadGLBFile(file);
+      });
+
+      window.addEventListener("resize", updateCanvasSize);
+
+      updateCanvasSize();
+      resetView();
+
+      renderer.setAnimationLoop(() => {
+        controls.update();
+        renderer.render(scene, camera);
+      });
+    }
+
+    const missingVendorFiles = await findMissingVendorFiles();
+    if (missingVendorFiles.length) {
+      initCanvasFallback(missingVendorFiles);
+    } else {
+      await initThreeViewer();
+    }
   </script>
 </body>
 </html>
