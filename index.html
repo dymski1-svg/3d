@@ -279,6 +279,7 @@ Init...</pre>
       distanceLimits: "-",
       motionStatus: "OFF",
       motionPermission: "not requested",
+      motionMode: "camera off",
       motionAngles: "alpha=- beta=- gamma=-",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
@@ -305,6 +306,7 @@ Init...</pre>
         `Distance limits: ${state.distanceLimits}`,
         `Phone motion: ${state.motionStatus}`,
         `Motion permission: ${state.motionPermission}`,
+        `Motion mode: ${state.motionMode}`,
         `Motion angles: ${state.motionAngles}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
@@ -356,6 +358,7 @@ Init...</pre>
       state.vendorStatus = `missing ${missingFiles.length} vendor files`;
       state.motionStatus = "OFF";
       state.motionPermission = "fallback only";
+      state.motionMode = "camera unavailable";
       state.motionAngles = "alpha=- beta=- gamma=-";
       toggleMotionButton.textContent = "Wlacz ruch telefonu";
 
@@ -511,6 +514,7 @@ Init...</pre>
       toggleMotionButton.onclick = () => {
         state.motionStatus = "UNAVAILABLE";
         state.motionPermission = "fallback only";
+        state.motionMode = "camera unavailable";
         state.motionAngles = "alpha=- beta=- gamma=-";
         appendError("MOTION: niedostepne w fallback viewer");
         updateFallbackDebug();
@@ -659,11 +663,9 @@ Init...</pre>
         enabled: false,
         baselineAlpha: null,
         baselineBeta: null,
-        baseAzimuth: 0,
-        basePolar: 0,
+        baselineGamma: null,
+        baseEuler: new THREE.Euler(0, 0, 0, "YXZ"),
       };
-      const motionSpherical = new THREE.Spherical();
-      const motionOffset = new THREE.Vector3();
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
@@ -696,10 +698,10 @@ Init...</pre>
         controls.target.copy(view.target);
         controls.update();
         if (motionState.enabled) {
-          motionState.baseAzimuth = controls.getAzimuthalAngle();
-          motionState.basePolar = controls.getPolarAngle();
           motionState.baselineAlpha = null;
           motionState.baselineBeta = null;
+          motionState.baselineGamma = null;
+          motionState.baseEuler.copy(camera.rotation);
           state.motionAngles = "alpha=- beta=- gamma=-";
         }
         updateControlsDebug();
@@ -763,6 +765,7 @@ Init...</pre>
 
         if (![alpha, beta, gamma].every(Number.isFinite)) {
           state.motionStatus = "NO DATA";
+          state.motionMode = "camera orientation only";
           state.motionAngles = "alpha=- beta=- gamma=-";
           updateControlsDebug();
           return;
@@ -771,27 +774,27 @@ Init...</pre>
         if (motionState.baselineAlpha === null) {
           motionState.baselineAlpha = alpha;
           motionState.baselineBeta = beta;
-          motionState.baseAzimuth = controls.getAzimuthalAngle();
-          motionState.basePolar = controls.getPolarAngle();
+          motionState.baselineGamma = gamma;
+          motionState.baseEuler.copy(camera.rotation);
         }
 
         const yawDelta = THREE.MathUtils.degToRad(alpha - motionState.baselineAlpha);
         const pitchDelta = THREE.MathUtils.degToRad(beta - motionState.baselineBeta) * 0.65;
-        const radius = camera.position.distanceTo(controls.target);
-        const theta = motionState.baseAzimuth - yawDelta;
-        const phi = THREE.MathUtils.clamp(
-          motionState.basePolar - pitchDelta,
+        const rollDelta = THREE.MathUtils.degToRad(gamma - motionState.baselineGamma) * 0.35;
+        const nextPitch = THREE.MathUtils.clamp(
+          motionState.baseEuler.x - pitchDelta,
           controls.minPolarAngle,
           controls.maxPolarAngle
         );
 
-        motionSpherical.set(radius, phi, theta);
-        motionOffset.setFromSpherical(motionSpherical);
-        camera.position.copy(controls.target).add(motionOffset);
-        camera.lookAt(controls.target);
+        camera.rotation.order = "YXZ";
+        camera.rotation.x = nextPitch;
+        camera.rotation.y = motionState.baseEuler.y - yawDelta;
+        camera.rotation.z = motionState.baseEuler.z - rollDelta;
         camera.updateMatrixWorld();
 
-        state.motionStatus = "ACTIVE";
+        state.motionStatus = "AR LOOK";
+        state.motionMode = "camera orientation only";
         state.motionAngles = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
         updateControlsDebug();
       }
@@ -800,11 +803,14 @@ Init...</pre>
         motionState.enabled = false;
         motionState.baselineAlpha = null;
         motionState.baselineBeta = null;
+        motionState.baselineGamma = null;
         controls.enableRotate = true;
         window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
         state.motionStatus = "OFF";
+        state.motionMode = "camera off";
         state.motionAngles = "alpha=- beta=- gamma=-";
         syncMotionButton();
+        camera.rotation.order = "YXZ";
         updateControlsDebug();
       }
 
@@ -812,6 +818,7 @@ Init...</pre>
         if (typeof DeviceOrientationEvent === "undefined") {
           state.motionStatus = "UNAVAILABLE";
           state.motionPermission = "unsupported";
+          state.motionMode = "camera unsupported";
           state.motionAngles = "alpha=- beta=- gamma=-";
           appendError("MOTION: deviceorientation unsupported");
           updateControlsDebug();
@@ -824,6 +831,7 @@ Init...</pre>
             state.motionPermission = permission;
             if (permission !== "granted") {
               state.motionStatus = "DENIED";
+              state.motionMode = "camera blocked";
               state.motionAngles = "alpha=- beta=- gamma=-";
               appendError(`MOTION: permission ${permission}`);
               updateControlsDebug();
@@ -832,6 +840,7 @@ Init...</pre>
           } catch (error) {
             state.motionStatus = "ERROR";
             state.motionPermission = "request failed";
+            state.motionMode = "camera request failed";
             appendError(`MOTION: ${error.message || error}`);
             updateControlsDebug();
             return;
@@ -843,10 +852,11 @@ Init...</pre>
         motionState.enabled = true;
         motionState.baselineAlpha = null;
         motionState.baselineBeta = null;
-        motionState.baseAzimuth = controls.getAzimuthalAngle();
-        motionState.basePolar = controls.getPolarAngle();
+        motionState.baselineGamma = null;
+        motionState.baseEuler.copy(camera.rotation);
         controls.enableRotate = false;
         state.motionStatus = "WAITING";
+        state.motionMode = "camera orientation only";
         state.motionAngles = "alpha=- beta=- gamma=-";
         window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
         window.addEventListener("deviceorientation", handleDeviceOrientation, true);
