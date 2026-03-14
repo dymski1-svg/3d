@@ -134,10 +134,11 @@
     <div id="controls">
       <input id="fileInput" type="file" accept=".glb,model/gltf-binary" />
       <button id="resetView" class="button" type="button">Reset view</button>
+      <button id="toggleMotion" class="button" type="button">Wlacz ruch telefonu</button>
     </div>
     <div id="hint">
       Load GLB albo przeciagnij plik na strone. Bez modelu widoczny jest testowy grid + cube.
-      Gesty: 1 palec orbit, pinch dolly/zoom.
+      Gesty: 1 palec orbit, pinch dolly/zoom. Ruch telefonu jest opcjonalnym trybem.
     </div>
   </div>
   <canvas id="viewer"></canvas>
@@ -150,6 +151,7 @@ Init...</pre>
     const debugEl = document.getElementById("debug");
     const fileInput = document.getElementById("fileInput");
     const resetViewButton = document.getElementById("resetView");
+    const toggleMotionButton = document.getElementById("toggleMotion");
     const dropZone = document.getElementById("dropZone");
 
     const requiredVendorFiles = [
@@ -170,6 +172,9 @@ Init...</pre>
       cameraDistance: "-",
       controlsTarget: "-",
       distanceLimits: "-",
+      motionStatus: "OFF",
+      motionPermission: "not requested",
+      motionAngles: "alpha=- beta=- gamma=-",
       errorLines: [],
       lastObjectURL: null,
     };
@@ -192,6 +197,9 @@ Init...</pre>
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
         `Distance limits: ${state.distanceLimits}`,
+        `Phone motion: ${state.motionStatus}`,
+        `Motion permission: ${state.motionPermission}`,
+        `Motion angles: ${state.motionAngles}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
         state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
@@ -225,6 +233,10 @@ Init...</pre>
       state.renderer = "2D fallback";
       state.currentModel = "fallback cube";
       state.vendorStatus = `missing ${missingFiles.length} vendor files`;
+      state.motionStatus = "OFF";
+      state.motionPermission = "fallback only";
+      state.motionAngles = "alpha=- beta=- gamma=-";
+      toggleMotionButton.textContent = "Wlacz ruch telefonu";
 
       const cubeVertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
@@ -375,6 +387,14 @@ Init...</pre>
         }
       };
 
+      toggleMotionButton.onclick = () => {
+        state.motionStatus = "UNAVAILABLE";
+        state.motionPermission = "fallback only";
+        state.motionAngles = "alpha=- beta=- gamma=-";
+        appendError("MOTION: niedostepne w fallback viewer");
+        updateFallbackDebug();
+      };
+
       let dragDepth = 0;
       function showDropZone(visible) {
         dropZone.classList.toggle("visible", visible);
@@ -514,9 +534,22 @@ Init...</pre>
         position: new THREE.Vector3(0, 1.6, 4.8),
         target: new THREE.Vector3(0, 0.8, 0),
       };
+      const motionState = {
+        enabled: false,
+        baselineAlpha: null,
+        baselineBeta: null,
+        baseAzimuth: 0,
+        basePolar: 0,
+      };
+      const motionSpherical = new THREE.Spherical();
+      const motionOffset = new THREE.Vector3();
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
+      }
+
+      function syncMotionButton() {
+        toggleMotionButton.textContent = motionState.enabled ? "Wylacz ruch telefonu" : "Wlacz ruch telefonu";
       }
 
       function updateControlsDebug() {
@@ -541,6 +574,13 @@ Init...</pre>
         camera.position.copy(view.position);
         controls.target.copy(view.target);
         controls.update();
+        if (motionState.enabled) {
+          motionState.baseAzimuth = controls.getAzimuthalAngle();
+          motionState.basePolar = controls.getPolarAngle();
+          motionState.baselineAlpha = null;
+          motionState.baselineBeta = null;
+          state.motionAngles = "alpha=- beta=- gamma=-";
+        }
         updateControlsDebug();
       }
 
@@ -588,6 +628,108 @@ Init...</pre>
           target: defaultView.target.clone(),
         });
         state.mode = currentRoot ? "showing GLB" : "fallback";
+        updateControlsDebug();
+      }
+
+      function handleDeviceOrientation(event) {
+        if (!motionState.enabled) {
+          return;
+        }
+
+        const alpha = event.alpha;
+        const beta = event.beta;
+        const gamma = event.gamma;
+
+        if (![alpha, beta, gamma].every(Number.isFinite)) {
+          state.motionStatus = "NO DATA";
+          state.motionAngles = "alpha=- beta=- gamma=-";
+          updateControlsDebug();
+          return;
+        }
+
+        if (motionState.baselineAlpha === null) {
+          motionState.baselineAlpha = alpha;
+          motionState.baselineBeta = beta;
+          motionState.baseAzimuth = controls.getAzimuthalAngle();
+          motionState.basePolar = controls.getPolarAngle();
+        }
+
+        const yawDelta = THREE.MathUtils.degToRad(alpha - motionState.baselineAlpha);
+        const pitchDelta = THREE.MathUtils.degToRad(beta - motionState.baselineBeta) * 0.65;
+        const radius = camera.position.distanceTo(controls.target);
+        const theta = motionState.baseAzimuth - yawDelta;
+        const phi = THREE.MathUtils.clamp(
+          motionState.basePolar - pitchDelta,
+          controls.minPolarAngle,
+          controls.maxPolarAngle
+        );
+
+        motionSpherical.set(radius, phi, theta);
+        motionOffset.setFromSpherical(motionSpherical);
+        camera.position.copy(controls.target).add(motionOffset);
+        camera.lookAt(controls.target);
+        camera.updateMatrixWorld();
+
+        state.motionStatus = "ACTIVE";
+        state.motionAngles = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
+        updateControlsDebug();
+      }
+
+      function disablePhoneMotion() {
+        motionState.enabled = false;
+        motionState.baselineAlpha = null;
+        motionState.baselineBeta = null;
+        controls.enableRotate = true;
+        window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
+        state.motionStatus = "OFF";
+        state.motionAngles = "alpha=- beta=- gamma=-";
+        syncMotionButton();
+        updateControlsDebug();
+      }
+
+      async function enablePhoneMotion() {
+        if (typeof DeviceOrientationEvent === "undefined") {
+          state.motionStatus = "UNAVAILABLE";
+          state.motionPermission = "unsupported";
+          state.motionAngles = "alpha=- beta=- gamma=-";
+          appendError("MOTION: deviceorientation unsupported");
+          updateControlsDebug();
+          return;
+        }
+
+        if (typeof DeviceOrientationEvent.requestPermission === "function") {
+          try {
+            const permission = await DeviceOrientationEvent.requestPermission();
+            state.motionPermission = permission;
+            if (permission !== "granted") {
+              state.motionStatus = "DENIED";
+              state.motionAngles = "alpha=- beta=- gamma=-";
+              appendError(`MOTION: permission ${permission}`);
+              updateControlsDebug();
+              return;
+            }
+          } catch (error) {
+            state.motionStatus = "ERROR";
+            state.motionPermission = "request failed";
+            appendError(`MOTION: ${error.message || error}`);
+            updateControlsDebug();
+            return;
+          }
+        } else {
+          state.motionPermission = "not required";
+        }
+
+        motionState.enabled = true;
+        motionState.baselineAlpha = null;
+        motionState.baselineBeta = null;
+        motionState.baseAzimuth = controls.getAzimuthalAngle();
+        motionState.basePolar = controls.getPolarAngle();
+        controls.enableRotate = false;
+        state.motionStatus = "WAITING";
+        state.motionAngles = "alpha=- beta=- gamma=-";
+        window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
+        window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+        syncMotionButton();
         updateControlsDebug();
       }
 
@@ -669,6 +811,13 @@ Init...</pre>
       });
 
       resetViewButton.addEventListener("click", resetView);
+      toggleMotionButton.addEventListener("click", async () => {
+        if (motionState.enabled) {
+          disablePhoneMotion();
+        } else {
+          await enablePhoneMotion();
+        }
+      });
 
       let dragDepth = 0;
       function showDropZone(visible) {
@@ -709,6 +858,7 @@ Init...</pre>
       window.addEventListener("resize", updateCanvasSize);
       controls.addEventListener("change", updateControlsDebug);
 
+      syncMotionButton();
       updateCanvasSize();
       fitCameraToObject(fallbackGroup, true);
       resetView();
