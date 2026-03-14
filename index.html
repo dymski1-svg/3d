@@ -280,6 +280,7 @@ Init...</pre>
       motionStatus: "OFF",
       motionPermission: "not requested",
       motionMode: "camera off",
+      controlsUpdateMode: "active",
       motionAngles: "alpha=- beta=- gamma=-",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
@@ -307,6 +308,7 @@ Init...</pre>
         `Phone motion: ${state.motionStatus}`,
         `Motion permission: ${state.motionPermission}`,
         `Motion mode: ${state.motionMode}`,
+        `Controls update: ${state.controlsUpdateMode}`,
         `Motion angles: ${state.motionAngles}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
@@ -359,6 +361,7 @@ Init...</pre>
       state.motionStatus = "OFF";
       state.motionPermission = "fallback only";
       state.motionMode = "camera unavailable";
+      state.controlsUpdateMode = "fallback";
       state.motionAngles = "alpha=- beta=- gamma=-";
       toggleMotionButton.textContent = "Wlacz ruch telefonu";
 
@@ -680,6 +683,7 @@ Init...</pre>
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
+        state.controlsUpdateMode = motionState.enabled ? "skipped in motion mode" : "active";
         updateDebug();
       }
 
@@ -808,6 +812,7 @@ Init...</pre>
         window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
         state.motionStatus = "OFF";
         state.motionMode = "camera off";
+        state.controlsUpdateMode = "active";
         state.motionAngles = "alpha=- beta=- gamma=-";
         syncMotionButton();
         camera.rotation.order = "YXZ";
@@ -857,6 +862,7 @@ Init...</pre>
         controls.enableRotate = false;
         state.motionStatus = "WAITING";
         state.motionMode = "camera orientation only";
+        state.controlsUpdateMode = "skipped in motion mode";
         state.motionAngles = "alpha=- beta=- gamma=-";
         window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
         window.addEventListener("deviceorientation", handleDeviceOrientation, true);
@@ -995,7 +1001,9 @@ Init...</pre>
       resetView();
 
       renderer.setAnimationLoop(() => {
-        controls.update();
+        if (!motionState.enabled) {
+          controls.update();
+        }
         renderer.render(scene, camera);
       });
     }
