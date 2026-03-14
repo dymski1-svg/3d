@@ -280,6 +280,7 @@ Init...</pre>
       motionStatus: "OFF",
       motionPermission: "not requested",
       motionMode: "camera off",
+      motionCalibration: "not captured",
       controlsUpdateMode: "active",
       motionAngles: "alpha=- beta=- gamma=-",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
@@ -308,6 +309,7 @@ Init...</pre>
         `Phone motion: ${state.motionStatus}`,
         `Motion permission: ${state.motionPermission}`,
         `Motion mode: ${state.motionMode}`,
+        `Motion calibration: ${state.motionCalibration}`,
         `Controls update: ${state.controlsUpdateMode}`,
         `Motion angles: ${state.motionAngles}`,
         `Vendor: ${state.vendorStatus}`,
@@ -361,6 +363,7 @@ Init...</pre>
       state.motionStatus = "OFF";
       state.motionPermission = "fallback only";
       state.motionMode = "camera unavailable";
+      state.motionCalibration = "fallback only";
       state.controlsUpdateMode = "fallback";
       state.motionAngles = "alpha=- beta=- gamma=-";
       toggleMotionButton.textContent = "Wlacz ruch telefonu";
@@ -518,6 +521,7 @@ Init...</pre>
         state.motionStatus = "UNAVAILABLE";
         state.motionPermission = "fallback only";
         state.motionMode = "camera unavailable";
+        state.motionCalibration = "fallback only";
         state.motionAngles = "alpha=- beta=- gamma=-";
         appendError("MOTION: niedostepne w fallback viewer");
         updateFallbackDebug();
@@ -667,7 +671,8 @@ Init...</pre>
         baselineAlpha: null,
         baselineBeta: null,
         baselineGamma: null,
-        baseEuler: new THREE.Euler(0, 0, 0, "YXZ"),
+        calibrated: false,
+        baseDirection: new THREE.Vector3(0, 0, -1),
       };
 
       function formatVector3(vector) {
@@ -705,7 +710,9 @@ Init...</pre>
           motionState.baselineAlpha = null;
           motionState.baselineBeta = null;
           motionState.baselineGamma = null;
-          motionState.baseEuler.copy(camera.rotation);
+          motionState.calibrated = false;
+          motionState.baseDirection.copy(view.target).sub(view.position).normalize();
+          state.motionCalibration = "reset for new view";
           state.motionAngles = "alpha=- beta=- gamma=-";
         }
         updateControlsDebug();
@@ -769,7 +776,7 @@ Init...</pre>
 
         if (![alpha, beta, gamma].every(Number.isFinite)) {
           state.motionStatus = "NO DATA";
-          state.motionMode = "camera orientation only";
+          state.motionMode = "relative look-around";
           state.motionAngles = "alpha=- beta=- gamma=-";
           updateControlsDebug();
           return;
@@ -779,26 +786,34 @@ Init...</pre>
           motionState.baselineAlpha = alpha;
           motionState.baselineBeta = beta;
           motionState.baselineGamma = gamma;
-          motionState.baseEuler.copy(camera.rotation);
+          motionState.baseDirection.copy(controls.target).sub(camera.position).normalize();
+          motionState.calibrated = true;
+          state.motionCalibration = "captured from current view";
         }
 
         const yawDelta = THREE.MathUtils.degToRad(alpha - motionState.baselineAlpha);
         const pitchDelta = THREE.MathUtils.degToRad(beta - motionState.baselineBeta) * 0.65;
-        const rollDelta = THREE.MathUtils.degToRad(gamma - motionState.baselineGamma) * 0.35;
-        const nextPitch = THREE.MathUtils.clamp(
-          motionState.baseEuler.x - pitchDelta,
-          controls.minPolarAngle,
-          controls.maxPolarAngle
-        );
+        const baseDirection = motionState.baseDirection.clone().normalize();
+        const yawQuaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yawDelta);
+        const yawedDirection = baseDirection.clone().applyQuaternion(yawQuaternion).normalize();
+        const flatLength = Math.hypot(yawedDirection.x, yawedDirection.z);
+        const currentPitch = Math.atan2(yawedDirection.y, Math.max(flatLength, 1e-6));
+        const nextPitch = THREE.MathUtils.clamp(currentPitch - pitchDelta, controls.minPolarAngle, controls.maxPolarAngle);
+        const yawAngle = Math.atan2(yawedDirection.x, yawedDirection.z);
+        const lookDirection = new THREE.Vector3(
+          Math.sin(yawAngle) * Math.cos(nextPitch),
+          Math.sin(nextPitch),
+          Math.cos(yawAngle) * Math.cos(nextPitch)
+        ).normalize();
+        const lookDistance = Math.max(camera.position.distanceTo(controls.target), 0.1);
+        const lookTarget = camera.position.clone().add(lookDirection.multiplyScalar(lookDistance));
 
-        camera.rotation.order = "YXZ";
-        camera.rotation.x = nextPitch;
-        camera.rotation.y = motionState.baseEuler.y - yawDelta;
-        camera.rotation.z = motionState.baseEuler.z - rollDelta;
+        camera.up.set(0, 1, 0);
+        camera.lookAt(lookTarget);
         camera.updateMatrixWorld();
 
         state.motionStatus = "AR LOOK";
-        state.motionMode = "camera orientation only";
+        state.motionMode = "relative look-around";
         state.motionAngles = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
         updateControlsDebug();
       }
@@ -808,14 +823,15 @@ Init...</pre>
         motionState.baselineAlpha = null;
         motionState.baselineBeta = null;
         motionState.baselineGamma = null;
+        motionState.calibrated = false;
         controls.enableRotate = true;
         window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
         state.motionStatus = "OFF";
         state.motionMode = "camera off";
+        state.motionCalibration = "not captured";
         state.controlsUpdateMode = "active";
         state.motionAngles = "alpha=- beta=- gamma=-";
         syncMotionButton();
-        camera.rotation.order = "YXZ";
         updateControlsDebug();
       }
 
@@ -824,6 +840,7 @@ Init...</pre>
           state.motionStatus = "UNAVAILABLE";
           state.motionPermission = "unsupported";
           state.motionMode = "camera unsupported";
+          state.motionCalibration = "unsupported";
           state.motionAngles = "alpha=- beta=- gamma=-";
           appendError("MOTION: deviceorientation unsupported");
           updateControlsDebug();
@@ -837,6 +854,7 @@ Init...</pre>
             if (permission !== "granted") {
               state.motionStatus = "DENIED";
               state.motionMode = "camera blocked";
+              state.motionCalibration = "permission denied";
               state.motionAngles = "alpha=- beta=- gamma=-";
               appendError(`MOTION: permission ${permission}`);
               updateControlsDebug();
@@ -846,6 +864,7 @@ Init...</pre>
             state.motionStatus = "ERROR";
             state.motionPermission = "request failed";
             state.motionMode = "camera request failed";
+            state.motionCalibration = "request failed";
             appendError(`MOTION: ${error.message || error}`);
             updateControlsDebug();
             return;
@@ -858,10 +877,12 @@ Init...</pre>
         motionState.baselineAlpha = null;
         motionState.baselineBeta = null;
         motionState.baselineGamma = null;
-        motionState.baseEuler.copy(camera.rotation);
+        motionState.calibrated = false;
+        motionState.baseDirection.copy(controls.target).sub(camera.position).normalize();
         controls.enableRotate = false;
         state.motionStatus = "WAITING";
-        state.motionMode = "camera orientation only";
+        state.motionMode = "relative look-around";
+        state.motionCalibration = "ready to capture";
         state.controlsUpdateMode = "skipped in motion mode";
         state.motionAngles = "alpha=- beta=- gamma=-";
         window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
