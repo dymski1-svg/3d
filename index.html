@@ -165,7 +165,11 @@ Init...</pre>
       renderer: "2D fallback",
       canvasSize: `${window.innerWidth}x${window.innerHeight}`,
       currentModel: "fallback cube",
+      activeView: "fallback",
       vendorStatus: "checking local vendor files",
+      cameraDistance: "-",
+      controlsTarget: "-",
+      distanceLimits: "-",
       errorLines: [],
       lastObjectURL: null,
     };
@@ -184,6 +188,10 @@ Init...</pre>
         `Renderer: ${state.renderer}`,
         `Mode: ${state.mode}`,
         `Model: ${state.currentModel}`,
+        `Active view: ${state.activeView}`,
+        `Camera distance: ${state.cameraDistance}`,
+        `Target: ${state.controlsTarget}`,
+        `Distance limits: ${state.distanceLimits}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
         state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
@@ -234,6 +242,17 @@ Init...</pre>
       }
 
       const camera = { yaw: 0.7, pitch: -0.42, distance: 6.6 };
+      const fallbackTarget = { x: 0, y: 0.5, z: 0 };
+      const fallbackMinDistance = 3;
+      const fallbackMaxDistance = 12;
+
+      function updateFallbackDebug(extraLines = []) {
+        state.activeView = "fallback";
+        state.cameraDistance = camera.distance.toFixed(2);
+        state.controlsTarget = `${fallbackTarget.x.toFixed(2)}, ${fallbackTarget.y.toFixed(2)}, ${fallbackTarget.z.toFixed(2)}`;
+        state.distanceLimits = `${fallbackMinDistance.toFixed(2)} .. ${fallbackMaxDistance.toFixed(2)}`;
+        updateDebug(extraLines);
+      }
 
       function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
@@ -276,7 +295,7 @@ Init...</pre>
         canvas.style.width = `${window.innerWidth}px`;
         canvas.style.height = `${window.innerHeight}px`;
         state.canvasSize = `${canvas.width}x${canvas.height} px`;
-        updateDebug([
+        updateFallbackDebug([
           "TODO:",
           ...missingFiles.map((file) => `- add ${file}`),
         ]);
@@ -313,9 +332,10 @@ Init...</pre>
         if (activePointers.size === 2) {
           const next = pointerDistance();
           if (pinchDistance > 0) {
-            camera.distance = clamp(camera.distance - (next - pinchDistance) * 0.015, 3, 12);
+            camera.distance = clamp(camera.distance - (next - pinchDistance) * 0.015, fallbackMinDistance, fallbackMaxDistance);
           }
           pinchDistance = next;
+          updateFallbackDebug();
           return;
         }
         if (activePointers.size === 1 && lastDrag && lastDrag.id === event.pointerId) {
@@ -324,6 +344,7 @@ Init...</pre>
           lastDrag = { x: event.clientX, y: event.clientY, id: event.pointerId };
           camera.yaw -= dx * 0.0085;
           camera.pitch = clamp(camera.pitch - dy * 0.0085, -1.25, 1.25);
+          updateFallbackDebug();
         }
       };
 
@@ -344,6 +365,7 @@ Init...</pre>
         camera.yaw = 0.7;
         camera.pitch = -0.42;
         camera.distance = 6.6;
+        updateFallbackDebug();
       };
 
       fileInput.onchange = (event) => {
@@ -455,7 +477,12 @@ Init...</pre>
       const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 2000);
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
       controls.enablePan = false;
+      controls.rotateSpeed = 0.72;
+      controls.zoomSpeed = 0.9;
+      controls.minPolarAngle = 0.08;
+      controls.maxPolarAngle = Math.PI * 0.48;
       controls.minDistance = 0.2;
       controls.maxDistance = 500;
       controls.target.set(0, 1, 0);
@@ -488,6 +515,18 @@ Init...</pre>
         target: new THREE.Vector3(0, 0.8, 0),
       };
 
+      function formatVector3(vector) {
+        return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
+      }
+
+      function updateControlsDebug() {
+        state.activeView = fallbackGroup.visible ? "fallback" : "GLB";
+        state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
+        state.controlsTarget = formatVector3(controls.target);
+        state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
+        updateDebug();
+      }
+
       function updateCanvasSize() {
         const width = window.innerWidth;
         const height = window.innerHeight;
@@ -495,18 +534,20 @@ Init...</pre>
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
         state.canvasSize = `${Math.round(width * renderer.getPixelRatio())}x${Math.round(height * renderer.getPixelRatio())} px`;
-        updateDebug();
+        updateControlsDebug();
       }
 
       function applyView(view) {
         camera.position.copy(view.position);
         controls.target.copy(view.target);
         controls.update();
+        updateControlsDebug();
       }
 
       function setFallbackVisible(visible) {
         fallbackGroup.visible = visible;
         state.currentModel = visible ? "fallback cube" : state.currentModel;
+        state.activeView = visible ? "fallback" : "GLB";
       }
 
       function fitCameraToObject(object3D, makeDefault) {
@@ -521,6 +562,8 @@ Init...</pre>
         const fitHeightDistance = maxDim / (2 * Math.tan((camera.fov * Math.PI / 180) / 2));
         const fitWidthDistance = fitHeightDistance / camera.aspect;
         const distance = 1.35 * Math.max(fitHeightDistance, fitWidthDistance);
+        const minDistance = Math.max(maxDim * 0.35, distance * 0.2, 0.1);
+        const maxDistance = Math.max(distance * 6, maxDim * 12, minDistance + 1);
 
         const view = {
           target: center.clone(),
@@ -528,8 +571,9 @@ Init...</pre>
         };
 
         applyView(view);
-        controls.minDistance = Math.max(maxDim * 0.1, 0.05);
-        controls.maxDistance = Math.max(distance * 8, 10);
+        controls.minDistance = minDistance;
+        controls.maxDistance = maxDistance;
+        updateControlsDebug();
         if (makeDefault) {
           defaultView = {
             position: view.position.clone(),
@@ -544,7 +588,7 @@ Init...</pre>
           target: defaultView.target.clone(),
         });
         state.mode = currentRoot ? "showing GLB" : "fallback";
-        updateDebug();
+        updateControlsDebug();
       }
 
       function disposeCurrentModel() {
@@ -606,11 +650,12 @@ Init...</pre>
           fitCameraToObject(root, true);
           state.mode = "showing GLB";
           state.currentModel = file.name;
-          updateDebug();
+          updateControlsDebug();
         } catch (error) {
           appendError(`LOAD: ${error.message || error}`);
           disposeCurrentModel();
           setFallbackVisible(true);
+          fitCameraToObject(fallbackGroup, true);
           resetView();
         } finally {
           URL.revokeObjectURL(objectURL);
@@ -662,8 +707,10 @@ Init...</pre>
       });
 
       window.addEventListener("resize", updateCanvasSize);
+      controls.addEventListener("change", updateControlsDebug);
 
       updateCanvasSize();
+      fitCameraToObject(fallbackGroup, true);
       resetView();
 
       renderer.setAnimationLoop(() => {

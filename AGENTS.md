@@ -51,3 +51,13 @@ Priorytet: widoczny model, nawigacja gestami, opcjonalnie sterowanie kamerą ruc
 
 Jeśli brak bundlera, użyj prostego serwera statycznego:
 - `npx http-server . -p 8080`
+
+## Zasady commitów
+Przy każdym zadaniu, które zmienia pliki:
+- zawsze na końcu zaproponuj nazwę commita,
+- commit ma być krótki i konkretny,
+- pisz go w trybie rozkazującym,
+- jeśli to pomaga, dodaj zakres zmiany.
+
+Format:
+Proponowany commit: <treść>
