@@ -88,6 +88,10 @@
       color: #3a4a5f;
     }
 
+    #hintCompact {
+      display: none;
+    }
+
     #dropZone {
       position: fixed;
       inset: 0;
@@ -110,21 +114,114 @@
       display: flex;
     }
 
-    #debug {
+    #debugPanel {
       position: fixed;
       left: 12px;
       bottom: 12px;
       z-index: 20;
-      min-width: 240px;
       max-width: min(94vw, 520px);
-      padding: 10px 12px;
+      min-width: 220px;
+      max-height: min(42vh, 340px);
+      padding: 8px 10px 10px;
       border-radius: 12px;
       background: rgba(7, 14, 23, 0.82);
       color: #eaf2ff;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+      overflow: hidden;
+    }
+
+    #debugBar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    #debugTitle {
+      font: 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+      opacity: 0.85;
+    }
+
+    #toggleDebug {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-weight: 700;
+      color: #eaf2ff;
+      background: rgba(255, 255, 255, 0.12);
+      cursor: pointer;
+    }
+
+    #debug {
+      margin: 0;
+      max-height: calc(min(42vh, 340px) - 34px);
+      overflow: auto;
+      color: #eaf2ff;
       font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
       white-space: pre-wrap;
-      pointer-events: none;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+      scrollbar-width: thin;
+    }
+
+    @media (max-width: 640px) {
+      #ui {
+        top: 8px;
+        left: 8px;
+        max-width: min(76vw, 290px);
+        padding: 8px 10px;
+        border-radius: 12px;
+      }
+
+      #ui strong {
+        margin-bottom: 6px;
+        font-size: 13px;
+      }
+
+      #controls {
+        gap: 6px;
+      }
+
+      .button,
+      #fileInput::file-selector-button {
+        padding: 8px 10px;
+        font-size: 12px;
+      }
+
+      #fileInput {
+        width: 100%;
+        font-size: 12px;
+      }
+
+      #hint {
+        margin-top: 8px;
+        font-size: 11px;
+      }
+
+      #hintFull {
+        display: none;
+      }
+
+      #hintCompact {
+        display: inline;
+      }
+
+      #debugPanel {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        min-width: 0;
+        max-width: none;
+        max-height: 34vh;
+        padding: 7px 8px 8px;
+      }
+
+      #debug {
+        max-height: calc(34vh - 32px);
+        font-size: 11px;
+        line-height: 1.35;
+      }
     }
   </style>
 </head>
@@ -137,18 +234,26 @@
       <button id="toggleMotion" class="button" type="button">Wlacz ruch telefonu</button>
     </div>
     <div id="hint">
-      Load GLB albo przeciagnij plik na strone. Bez modelu widoczny jest testowy grid + cube.
-      Gesty: 1 palec orbit, pinch dolly/zoom. Ruch telefonu jest opcjonalnym trybem.
+      <span id="hintFull">Load GLB albo przeciagnij plik na strone. Bez modelu widoczny jest testowy grid + cube.
+      Gesty: 1 palec orbit, pinch dolly/zoom. Ruch telefonu jest opcjonalnym trybem.</span>
+      <span id="hintCompact">Load GLB lub upusc plik. Gesty: orbit i pinch.</span>
     </div>
   </div>
   <canvas id="viewer"></canvas>
   <div id="dropZone">Upusc plik .glb</div>
-  <pre id="debug">JS OK
+  <div id="debugPanel">
+    <div id="debugBar">
+      <span id="debugTitle">Debug</span>
+      <button id="toggleDebug" type="button">Debug</button>
+    </div>
+    <pre id="debug">JS OK
 Init...</pre>
+  </div>
 
   <script type="module">
     const canvas = document.getElementById("viewer");
     const debugEl = document.getElementById("debug");
+    const toggleDebugButton = document.getElementById("toggleDebug");
     const fileInput = document.getElementById("fileInput");
     const resetViewButton = document.getElementById("resetView");
     const toggleMotionButton = document.getElementById("toggleMotion");
@@ -175,6 +280,7 @@ Init...</pre>
       motionStatus: "OFF",
       motionPermission: "not requested",
       motionAngles: "alpha=- beta=- gamma=-",
+      debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
     };
@@ -187,7 +293,7 @@ Init...</pre>
     }
 
     function updateDebug(extraLines = []) {
-      debugEl.textContent = [
+      const fullLines = [
         "JS OK",
         `Canvas: ${state.canvasSize}`,
         `Renderer: ${state.renderer}`,
@@ -203,8 +309,23 @@ Init...</pre>
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
         state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
-      ].join("\n");
+      ];
+
+      const compactLines = [
+        "JS OK",
+        `${state.activeView} | ${state.currentModel}`,
+        `Dist ${state.cameraDistance} | ${state.motionStatus}`,
+        state.errorLines.length ? `Err: ${state.errorLines[state.errorLines.length - 1]}` : "Errors: none",
+      ];
+
+      debugEl.textContent = (state.debugExpanded ? fullLines : compactLines).join("\n");
+      toggleDebugButton.textContent = state.debugExpanded ? "Ukryj debug" : "Debug";
     }
+
+    toggleDebugButton.addEventListener("click", () => {
+      state.debugExpanded = !state.debugExpanded;
+      updateDebug();
+    });
 
     window.addEventListener("error", (event) => {
       appendError(`ERROR: ${event.message || "unknown"}`);
