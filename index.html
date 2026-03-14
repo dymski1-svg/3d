@@ -281,6 +281,12 @@ Init...</pre>
       motionPermission: "not requested",
       motionMode: "camera off",
       motionCalibration: "not captured",
+      motionApi: typeof DeviceOrientationEvent === "undefined" ? "missing" : "available",
+      motionListener: "detached",
+      motionEventCount: 0,
+      motionLastEventAt: "-",
+      motionSensorStatus: "idle",
+      motionRawAngles: "alpha=- beta=- gamma=-",
       motionBaseDirection: "-",
       motionControlsSync: "not synced",
       controlsUpdateMode: "active",
@@ -311,6 +317,12 @@ Init...</pre>
         `Phone motion: ${state.motionStatus}`,
         `Motion permission: ${state.motionPermission}`,
         `Motion mode: ${state.motionMode}`,
+        `Motion API: ${state.motionApi}`,
+        `Motion listener: ${state.motionListener}`,
+        `Motion sensor: ${state.motionSensorStatus}`,
+        `Motion events: ${state.motionEventCount}`,
+        `Motion last event: ${state.motionLastEventAt}`,
+        `Motion raw: ${state.motionRawAngles}`,
         `Motion calibration: ${state.motionCalibration}`,
         `Motion base dir: ${state.motionBaseDirection}`,
         `Motion sync: ${state.motionControlsSync}`,
@@ -367,6 +379,12 @@ Init...</pre>
       state.motionStatus = "OFF";
       state.motionPermission = "fallback only";
       state.motionMode = "camera unavailable";
+      state.motionApi = "fallback only";
+      state.motionListener = "detached";
+      state.motionEventCount = 0;
+      state.motionLastEventAt = "-";
+      state.motionSensorStatus = "fallback only";
+      state.motionRawAngles = "alpha=- beta=- gamma=-";
       state.motionCalibration = "fallback only";
       state.motionBaseDirection = "-";
       state.motionControlsSync = "fallback only";
@@ -527,6 +545,12 @@ Init...</pre>
         state.motionStatus = "UNAVAILABLE";
         state.motionPermission = "fallback only";
         state.motionMode = "camera unavailable";
+        state.motionApi = "fallback only";
+        state.motionListener = "detached";
+        state.motionEventCount = 0;
+        state.motionLastEventAt = "-";
+        state.motionSensorStatus = "fallback only";
+        state.motionRawAngles = "alpha=- beta=- gamma=-";
         state.motionCalibration = "fallback only";
         state.motionBaseDirection = "-";
         state.motionControlsSync = "fallback only";
@@ -680,6 +704,7 @@ Init...</pre>
         baselineBeta: null,
         baselineGamma: null,
         calibrated: false,
+        noEventTimer: null,
         basePosition: new THREE.Vector3(),
         baseTarget: new THREE.Vector3(),
         baseDirection: new THREE.Vector3(0, 0, -1),
@@ -722,6 +747,32 @@ Init...</pre>
         state.motionControlsSync = `pos ${formatVector3(motionState.basePosition)} | target ${formatVector3(motionState.baseTarget)}`;
         if (calibrationStatus) {
           state.motionCalibration = calibrationStatus;
+        }
+      }
+
+      function resetMotionSensorDebug(sensorStatus) {
+        state.motionListener = "detached";
+        state.motionEventCount = 0;
+        state.motionLastEventAt = "-";
+        state.motionSensorStatus = sensorStatus;
+        state.motionRawAngles = "alpha=- beta=- gamma=-";
+      }
+
+      function setMotionListener(active) {
+        window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
+        if (motionState.noEventTimer) {
+          window.clearTimeout(motionState.noEventTimer);
+          motionState.noEventTimer = null;
+        }
+        state.motionListener = active ? "attached" : "detached";
+        if (active) {
+          window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+          motionState.noEventTimer = window.setTimeout(() => {
+            if (motionState.enabled && state.motionEventCount === 0) {
+              state.motionSensorStatus = "no events";
+              updateControlsDebug();
+            }
+          }, 1500);
         }
       }
 
@@ -796,9 +847,19 @@ Init...</pre>
         const beta = event.beta;
         const gamma = event.gamma;
 
+        state.motionEventCount += 1;
+        state.motionLastEventAt = new Date().toLocaleTimeString("en-GB", { hour12: false });
+        state.motionRawAngles = `alpha=${alpha ?? "null"} beta=${beta ?? "null"} gamma=${gamma ?? "null"}`;
+        state.motionSensorStatus = state.motionEventCount === 1 ? "first event received" : "listener active";
+        if (motionState.noEventTimer) {
+          window.clearTimeout(motionState.noEventTimer);
+          motionState.noEventTimer = null;
+        }
+
         if (![alpha, beta, gamma].every(Number.isFinite)) {
           state.motionStatus = "NO DATA";
           state.motionMode = "relative look-around";
+          state.motionSensorStatus = "event received, no numeric data";
           state.motionAngles = "alpha=- beta=- gamma=-";
           updateControlsDebug();
           return;
@@ -847,9 +908,11 @@ Init...</pre>
         motionState.baselineGamma = null;
         motionState.calibrated = false;
         controls.enableRotate = true;
-        window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
+        setMotionListener(false);
         state.motionStatus = "OFF";
         state.motionMode = "camera off";
+        state.motionApi = typeof DeviceOrientationEvent === "undefined" ? "missing" : "available";
+        resetMotionSensorDebug("idle");
         state.motionCalibration = "not captured";
         state.motionBaseDirection = "-";
         state.motionControlsSync = "not synced";
@@ -865,6 +928,8 @@ Init...</pre>
           state.motionPermission = "unsupported";
           state.motionMode = "camera unsupported";
           state.motionCalibration = "unsupported";
+          state.motionApi = "missing";
+          resetMotionSensorDebug("no deviceorientation api");
           state.motionBaseDirection = "-";
           state.motionControlsSync = "unsupported";
           state.motionAngles = "alpha=- beta=- gamma=-";
@@ -872,6 +937,8 @@ Init...</pre>
           updateControlsDebug();
           return;
         }
+
+        state.motionApi = "available";
 
         if (typeof DeviceOrientationEvent.requestPermission === "function") {
           try {
@@ -881,6 +948,7 @@ Init...</pre>
               state.motionStatus = "DENIED";
               state.motionMode = "camera blocked";
               state.motionCalibration = "permission denied";
+              resetMotionSensorDebug("permission denied");
               state.motionBaseDirection = "-";
               state.motionControlsSync = "permission denied";
               state.motionAngles = "alpha=- beta=- gamma=-";
@@ -893,6 +961,7 @@ Init...</pre>
             state.motionPermission = "request failed";
             state.motionMode = "camera request failed";
             state.motionCalibration = "request failed";
+            resetMotionSensorDebug("permission request failed");
             state.motionBaseDirection = "-";
             state.motionControlsSync = "request failed";
             appendError(`MOTION: ${error.message || error}`);
@@ -912,11 +981,11 @@ Init...</pre>
         controls.enableRotate = false;
         state.motionStatus = "WAITING";
         state.motionMode = "relative look-around";
+        resetMotionSensorDebug("listener attached");
         state.motionControlsSync = `pos ${formatVector3(motionState.basePosition)} | target ${formatVector3(motionState.baseTarget)}`;
         state.controlsUpdateMode = "skipped in motion mode";
         state.motionAngles = "alpha=- beta=- gamma=-";
-        window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
-        window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+        setMotionListener(true);
         syncMotionButton();
         updateControlsDebug();
       }
