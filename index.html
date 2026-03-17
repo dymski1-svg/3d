@@ -231,11 +231,10 @@
     <div id="controls">
       <input id="fileInput" type="file" accept=".glb,model/gltf-binary" />
       <button id="resetView" class="button" type="button">Reset view</button>
-      <button id="toggleMotion" class="button" type="button">Wlacz ruch telefonu</button>
     </div>
     <div id="hint">
       <span id="hintFull">Load GLB albo przeciagnij plik na strone. Bez modelu widoczny jest testowy grid + cube.
-      Gesty: 1 palec orbit, pinch dolly/zoom. Ruch telefonu jest opcjonalnym trybem.</span>
+      Gesty: 1 palec orbit, pinch dolly/zoom.</span>
       <span id="hintCompact">Load GLB lub upusc plik. Gesty: orbit i pinch.</span>
     </div>
   </div>
@@ -256,7 +255,6 @@ Init...</pre>
     const toggleDebugButton = document.getElementById("toggleDebug");
     const fileInput = document.getElementById("fileInput");
     const resetViewButton = document.getElementById("resetView");
-    const toggleMotionButton = document.getElementById("toggleMotion");
     const dropZone = document.getElementById("dropZone");
 
     const requiredVendorFiles = [
@@ -277,25 +275,6 @@ Init...</pre>
       cameraDistance: "-",
       controlsTarget: "-",
       distanceLimits: "-",
-      motionStatus: "OFF",
-      motionPermission: "not requested",
-      motionMode: "camera off",
-      gyroEnabled: "OFF",
-      screenOrientation: "0deg",
-      cameraPositionDebug: "-",
-      cameraQuaternionDebug: "-",
-      targetPositionDebug: "-",
-      motionCalibration: "not captured",
-      motionApi: typeof DeviceOrientationEvent === "undefined" ? "missing" : "available",
-      motionListener: "detached",
-      motionEventCount: 0,
-      motionLastEventAt: "-",
-      motionSensorStatus: "idle",
-      motionRawAngles: "alpha=- beta=- gamma=-",
-      motionBaseDirection: "-",
-      motionControlsSync: "not synced",
-      controlsUpdateMode: "active",
-      motionAngles: "alpha=- beta=- gamma=-",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -319,25 +298,6 @@ Init...</pre>
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
         `Distance limits: ${state.distanceLimits}`,
-        `Phone motion: ${state.motionStatus}`,
-        `Gyro enabled: ${state.gyroEnabled}`,
-        `Motion permission: ${state.motionPermission}`,
-        `Motion mode: ${state.motionMode}`,
-        `Screen orientation: ${state.screenOrientation}`,
-        `Camera position: ${state.cameraPositionDebug}`,
-        `Camera quaternion: ${state.cameraQuaternionDebug}`,
-        `Target position: ${state.targetPositionDebug}`,
-        `Motion API: ${state.motionApi}`,
-        `Motion listener: ${state.motionListener}`,
-        `Motion sensor: ${state.motionSensorStatus}`,
-        `Motion events: ${state.motionEventCount}`,
-        `Motion last event: ${state.motionLastEventAt}`,
-        `Motion raw: ${state.motionRawAngles}`,
-        `Motion calibration: ${state.motionCalibration}`,
-        `Motion base dir: ${state.motionBaseDirection}`,
-        `Motion sync: ${state.motionControlsSync}`,
-        `Controls update: ${state.controlsUpdateMode}`,
-        `Motion angles: ${state.motionAngles}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
         state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
@@ -346,7 +306,7 @@ Init...</pre>
       const compactLines = [
         "JS OK",
         `${state.activeView} | ${state.currentModel}`,
-        `Dist ${state.cameraDistance} | ${state.motionStatus}`,
+        `Dist ${state.cameraDistance}`,
         state.errorLines.length ? `Err: ${state.errorLines[state.errorLines.length - 1]}` : "Errors: none",
       ];
 
@@ -386,26 +346,6 @@ Init...</pre>
       state.renderer = "2D fallback";
       state.currentModel = "fallback cube";
       state.vendorStatus = `missing ${missingFiles.length} vendor files`;
-      state.motionStatus = "OFF";
-      state.motionPermission = "fallback only";
-      state.motionMode = "camera unavailable";
-      state.gyroEnabled = "OFF";
-      state.screenOrientation = "fallback";
-      state.cameraPositionDebug = "-";
-      state.cameraQuaternionDebug = "-";
-      state.targetPositionDebug = "-";
-      state.motionApi = "fallback only";
-      state.motionListener = "detached";
-      state.motionEventCount = 0;
-      state.motionLastEventAt = "-";
-      state.motionSensorStatus = "fallback only";
-      state.motionRawAngles = "alpha=- beta=- gamma=-";
-      state.motionCalibration = "fallback only";
-      state.motionBaseDirection = "-";
-      state.motionControlsSync = "fallback only";
-      state.controlsUpdateMode = "fallback";
-      state.motionAngles = "alpha=- beta=- gamma=-";
-      toggleMotionButton.textContent = "Wlacz ruch telefonu";
 
       const cubeVertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
@@ -556,25 +496,6 @@ Init...</pre>
         }
       };
 
-      toggleMotionButton.onclick = () => {
-        state.motionStatus = "UNAVAILABLE";
-        state.motionPermission = "fallback only";
-        state.motionMode = "camera unavailable";
-        state.gyroEnabled = "OFF";
-        state.motionApi = "fallback only";
-        state.motionListener = "detached";
-        state.motionEventCount = 0;
-        state.motionLastEventAt = "-";
-        state.motionSensorStatus = "fallback only";
-        state.motionRawAngles = "alpha=- beta=- gamma=-";
-        state.motionCalibration = "fallback only";
-        state.motionBaseDirection = "-";
-        state.motionControlsSync = "fallback only";
-        state.motionAngles = "alpha=- beta=- gamma=-";
-        appendError("MOTION: niedostepne w fallback viewer");
-        updateFallbackDebug();
-      };
-
       let dragDepth = 0;
       function showDropZone(visible) {
         dropZone.classList.toggle("visible", visible);
@@ -714,58 +635,9 @@ Init...</pre>
         position: new THREE.Vector3(0, 1.6, 4.8),
         target: new THREE.Vector3(0, 0.8, 0),
       };
-      const motionState = {
-        enabled: false,
-        baselineAlpha: null,
-        baselineBeta: null,
-        baselineGamma: null,
-        calibrated: false,
-        noEventTimer: null,
-        basePosition: new THREE.Vector3(),
-        baseTarget: new THREE.Vector3(),
-        baseOffset: new THREE.Vector3(),
-        orbitDistance: 1,
-        baseDirection: new THREE.Vector3(0, 0, -1),
-        baseSensorQuaternion: new THREE.Quaternion(),
-        currentSensorQuaternion: new THREE.Quaternion(),
-        sensorEuler: new THREE.Euler(),
-        screenQuaternion: new THREE.Quaternion(),
-        deviceQuaternionOffset: new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)),
-        zee: new THREE.Vector3(0, 0, 1),
-      };
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
-      }
-
-      function formatQuaternion(quaternion) {
-        return `${quaternion.x.toFixed(3)}, ${quaternion.y.toFixed(3)}, ${quaternion.z.toFixed(3)}, ${quaternion.w.toFixed(3)}`;
-      }
-
-      function getScreenOrientationAngle() {
-        if (window.screen.orientation && Number.isFinite(window.screen.orientation.angle)) {
-          return window.screen.orientation.angle;
-        }
-        if (typeof window.orientation === "number") {
-          return window.orientation;
-        }
-        return 0;
-      }
-
-      function updateScreenOrientationDebug() {
-        state.screenOrientation = `${getScreenOrientationAngle()}deg`;
-      }
-
-      function setDeviceQuaternion(targetQuaternion, alpha, beta, gamma, orient) {
-        motionState.sensorEuler.set(beta, alpha, -gamma, "YXZ");
-        targetQuaternion.setFromEuler(motionState.sensorEuler);
-        targetQuaternion.multiply(motionState.deviceQuaternionOffset);
-        motionState.screenQuaternion.setFromAxisAngle(motionState.zee, -orient);
-        targetQuaternion.multiply(motionState.screenQuaternion);
-      }
-
-      function syncMotionButton() {
-        toggleMotionButton.textContent = motionState.enabled ? "Wylacz ruch telefonu" : "Wlacz ruch telefonu";
       }
 
       function updateControlsDebug() {
@@ -773,14 +645,6 @@ Init...</pre>
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
-        state.cameraPositionDebug = formatVector3(camera.position);
-        state.cameraQuaternionDebug = formatQuaternion(camera.quaternion);
-        state.targetPositionDebug = formatVector3(controls.target);
-        updateScreenOrientationDebug();
-        if (motionState.enabled) {
-          motionState.orbitDistance = Math.max(camera.position.distanceTo(motionState.baseTarget), 0.1);
-        }
-        state.controlsUpdateMode = motionState.enabled ? "skipped in motion mode" : "active";
         updateDebug();
       }
 
@@ -794,59 +658,10 @@ Init...</pre>
         updateControlsDebug();
       }
 
-      function syncMotionBaseView(calibrationStatus) {
-        controls.update();
-        motionState.basePosition.copy(camera.position);
-        motionState.baseTarget.copy(controls.target);
-        motionState.baseOffset.copy(camera.position).sub(controls.target);
-        motionState.orbitDistance = Math.max(motionState.baseOffset.length(), 0.1);
-        camera.getWorldDirection(motionState.baseDirection);
-        motionState.baseDirection.normalize();
-        state.motionBaseDirection = formatVector3(motionState.baseDirection);
-        state.motionControlsSync = `pos ${formatVector3(motionState.basePosition)} | target ${formatVector3(motionState.baseTarget)}`;
-        if (calibrationStatus) {
-          state.motionCalibration = calibrationStatus;
-        }
-      }
-
-      function resetMotionSensorDebug(sensorStatus) {
-        state.motionListener = "detached";
-        state.motionEventCount = 0;
-        state.motionLastEventAt = "-";
-        state.motionSensorStatus = sensorStatus;
-        state.motionRawAngles = "alpha=- beta=- gamma=-";
-      }
-
-      function setMotionListener(active) {
-        window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
-        if (motionState.noEventTimer) {
-          window.clearTimeout(motionState.noEventTimer);
-          motionState.noEventTimer = null;
-        }
-        state.motionListener = active ? "attached" : "detached";
-        if (active) {
-          window.addEventListener("deviceorientation", handleDeviceOrientation, true);
-          motionState.noEventTimer = window.setTimeout(() => {
-            if (motionState.enabled && state.motionEventCount === 0) {
-              state.motionSensorStatus = "no events";
-              updateControlsDebug();
-            }
-          }, 1500);
-        }
-      }
-
       function applyView(view) {
         camera.position.copy(view.position);
         controls.target.copy(view.target);
         controls.update();
-        if (motionState.enabled) {
-          motionState.baselineAlpha = null;
-          motionState.baselineBeta = null;
-          motionState.baselineGamma = null;
-          motionState.calibrated = false;
-          syncMotionBaseView("reset for new view");
-          state.motionAngles = "alpha=- beta=- gamma=-";
-        }
         updateControlsDebug();
       }
 
@@ -894,171 +709,6 @@ Init...</pre>
           target: defaultView.target.clone(),
         });
         state.mode = currentRoot ? "showing GLB" : "fallback";
-        updateControlsDebug();
-      }
-
-      function handleDeviceOrientation(event) {
-        if (!motionState.enabled) {
-          return;
-        }
-
-        const alpha = event.alpha;
-        const beta = event.beta;
-        const gamma = event.gamma;
-
-        state.motionEventCount += 1;
-        state.motionLastEventAt = new Date().toLocaleTimeString("en-GB", { hour12: false });
-        state.motionRawAngles = `alpha=${alpha ?? "null"} beta=${beta ?? "null"} gamma=${gamma ?? "null"}`;
-        state.motionSensorStatus = state.motionEventCount === 1 ? "first event received" : "listener active";
-        if (motionState.noEventTimer) {
-          window.clearTimeout(motionState.noEventTimer);
-          motionState.noEventTimer = null;
-        }
-
-        if (![alpha, beta, gamma].every(Number.isFinite)) {
-          state.motionStatus = "NO DATA";
-          state.motionMode = "quaternion orbit around target";
-          state.motionSensorStatus = "event received, no numeric data";
-          state.motionAngles = "alpha=- beta=- gamma=-";
-          updateControlsDebug();
-          return;
-        }
-
-        if (motionState.baselineAlpha === null) {
-          motionState.baselineAlpha = alpha;
-          motionState.baselineBeta = beta;
-          motionState.baselineGamma = gamma;
-          motionState.calibrated = true;
-          setDeviceQuaternion(
-            motionState.baseSensorQuaternion,
-            THREE.MathUtils.degToRad(alpha),
-            THREE.MathUtils.degToRad(beta),
-            THREE.MathUtils.degToRad(gamma),
-            THREE.MathUtils.degToRad(getScreenOrientationAngle())
-          );
-          state.motionCalibration = "sensor baseline captured";
-        }
-
-        setDeviceQuaternion(
-          motionState.currentSensorQuaternion,
-          THREE.MathUtils.degToRad(alpha),
-          THREE.MathUtils.degToRad(beta),
-          THREE.MathUtils.degToRad(gamma),
-          THREE.MathUtils.degToRad(getScreenOrientationAngle())
-        );
-
-        const deltaQuaternion = motionState.currentSensorQuaternion
-          .clone()
-          .multiply(motionState.baseSensorQuaternion.clone().invert());
-        const nextOffset = motionState.baseOffset
-          .clone()
-          .normalize()
-          .multiplyScalar(motionState.orbitDistance)
-          .applyQuaternion(deltaQuaternion);
-
-        camera.position.copy(motionState.baseTarget).add(nextOffset);
-        camera.up.set(0, 1, 0);
-        camera.lookAt(motionState.baseTarget);
-        camera.updateMatrixWorld();
-
-        state.motionStatus = "AR LOOK";
-        state.motionMode = "quaternion orbit around target";
-        state.motionAngles = `alpha=${alpha.toFixed(1)} beta=${beta.toFixed(1)} gamma=${gamma.toFixed(1)}`;
-        state.motionControlsSync = `pos ${formatVector3(camera.position)} | target ${formatVector3(motionState.baseTarget)}`;
-        updateControlsDebug();
-      }
-
-      function disablePhoneMotion() {
-        motionState.enabled = false;
-        motionState.baselineAlpha = null;
-        motionState.baselineBeta = null;
-        motionState.baselineGamma = null;
-        motionState.calibrated = false;
-        controls.enableRotate = true;
-        setMotionListener(false);
-        state.motionStatus = "OFF";
-        state.motionMode = "camera off";
-        state.gyroEnabled = "OFF";
-        state.motionApi = typeof DeviceOrientationEvent === "undefined" ? "missing" : "available";
-        resetMotionSensorDebug("idle");
-        state.motionCalibration = "not captured";
-        state.motionBaseDirection = "-";
-        state.motionControlsSync = "not synced";
-        state.controlsUpdateMode = "active";
-        state.motionAngles = "alpha=- beta=- gamma=-";
-        syncMotionButton();
-        updateControlsDebug();
-      }
-
-      async function enablePhoneMotion() {
-        if (typeof DeviceOrientationEvent === "undefined") {
-          state.motionStatus = "UNAVAILABLE";
-          state.motionPermission = "unsupported";
-          state.motionMode = "camera unsupported";
-          state.gyroEnabled = "OFF";
-          state.motionCalibration = "unsupported";
-          state.motionApi = "missing";
-          resetMotionSensorDebug("no deviceorientation api");
-          state.motionBaseDirection = "-";
-          state.motionControlsSync = "unsupported";
-          state.motionAngles = "alpha=- beta=- gamma=-";
-          appendError("MOTION: deviceorientation unsupported");
-          updateControlsDebug();
-          return;
-        }
-
-        state.motionApi = "available";
-
-        if (typeof DeviceOrientationEvent.requestPermission === "function") {
-          try {
-            const permission = await DeviceOrientationEvent.requestPermission();
-            state.motionPermission = permission;
-            if (permission !== "granted") {
-              state.motionStatus = "DENIED";
-              state.motionMode = "camera blocked";
-              state.gyroEnabled = "OFF";
-              state.motionCalibration = "permission denied";
-              resetMotionSensorDebug("permission denied");
-              state.motionBaseDirection = "-";
-              state.motionControlsSync = "permission denied";
-              state.motionAngles = "alpha=- beta=- gamma=-";
-              appendError(`MOTION: permission ${permission}`);
-              updateControlsDebug();
-              return;
-            }
-          } catch (error) {
-            state.motionStatus = "ERROR";
-            state.motionPermission = "request failed";
-            state.motionMode = "camera request failed";
-            state.gyroEnabled = "OFF";
-            state.motionCalibration = "request failed";
-            resetMotionSensorDebug("permission request failed");
-            state.motionBaseDirection = "-";
-            state.motionControlsSync = "request failed";
-            appendError(`MOTION: ${error.message || error}`);
-            updateControlsDebug();
-            return;
-          }
-        } else {
-          state.motionPermission = "not required";
-        }
-
-        motionState.enabled = true;
-        motionState.baselineAlpha = null;
-        motionState.baselineBeta = null;
-        motionState.baselineGamma = null;
-        motionState.calibrated = false;
-        syncMotionBaseView("view base saved");
-        controls.enableRotate = false;
-        state.gyroEnabled = "ON";
-        state.motionStatus = "WAITING";
-        state.motionMode = "quaternion orbit around target";
-        resetMotionSensorDebug("listener attached");
-        state.motionControlsSync = `pos ${formatVector3(motionState.basePosition)} | target ${formatVector3(motionState.baseTarget)}`;
-        state.controlsUpdateMode = "skipped in motion mode";
-        state.motionAngles = "alpha=- beta=- gamma=-";
-        setMotionListener(true);
-        syncMotionButton();
         updateControlsDebug();
       }
 
@@ -1140,13 +790,6 @@ Init...</pre>
       });
 
       resetViewButton.addEventListener("click", resetView);
-      toggleMotionButton.addEventListener("click", async () => {
-        if (motionState.enabled) {
-          disablePhoneMotion();
-        } else {
-          await enablePhoneMotion();
-        }
-      });
 
       let dragDepth = 0;
       function showDropZone(visible) {
@@ -1187,15 +830,12 @@ Init...</pre>
       window.addEventListener("resize", updateCanvasSize);
       controls.addEventListener("change", updateControlsDebug);
 
-      syncMotionButton();
       updateCanvasSize();
       fitCameraToObject(fallbackGroup, true);
       resetView();
 
       renderer.setAnimationLoop(() => {
-        if (!motionState.enabled) {
-          controls.update();
-        }
+        controls.update();
         renderer.render(scene, camera);
       });
     }
