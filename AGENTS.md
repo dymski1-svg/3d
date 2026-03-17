@@ -1,63 +1,79 @@
 # AGENTS.md
 
-## Cel
-Utrzymuj działającą stronę GitHub Pages z webowym viewerem 3D (Android).
-Priorytet: widoczny model, nawigacja gestami, opcjonalnie sterowanie kamerą ruchem telefonu (żyroskop).
+## Project mission
+Build a stable web viewer for GLB models hosted on GitHub Pages.
 
-## Definicja „działa”
-- Strona ładuje się na GitHub Pages (HTTPS) i w Chrome na Androidzie.
-- Canvas/widok 3D wypełnia ekran (nie może być „tylko przycisk”).
-- Jest widoczny obiekt testowy (np. sześcian) nawet bez GLB.
-- Gesty działają:
-  - 1 palec: obrót (orbit) — gdy gyro OFF
-  - pinch: przybliż/oddal (dolly)
-- Po włączeniu „sterowania ruchem telefonu”:
-  - obrót kamery ruchem telefonu działa
-  - pinch nadal działa
-  - OrbitControls nie może nadpisywać obrotu z gyro (np. wyłącz rotate w controls albo rozdziel odpowiedzialności)
+Current priority:
+1. Stable GLB loading
+2. Good viewer navigation
+3. Robust debug/error reporting
+4. Later: sections/clipping
+5. Later: WebXR AR
 
-## Zasady implementacji
-1) Minimalne zmiany: popraw tylko to, co konieczne.
-2) Zawsze dodaj debug na ekranie:
-   - widoczny status „JS OK” po starcie modułu
-   - obsługa window.onerror + unhandledrejection i wypis błędu w UI
-   - przy włączonym gyro wyświetlaj alpha/beta/gamma lub status sensora
-3) Zadbaj o layout:
-   - canvas (lub viewer) ma zawsze 100vw x 100vh, display:block, brak scrolla
-   - UI (przycisk) ma fixed position i nie zasłania całego widoku
-4) Kompatybilność:
-   - hostowanie przez HTTPS
-   - brak zależności od lokalnych plików / file://
-   - importy z CDN muszą być stabilne; jeśli CDN jest problemem, rozważ bundling (np. Vite) i użycie wersji pinowanych
-5) Sensory:
-   - uruchamiaj czujniki dopiero po kliknięciu (user gesture)
-   - jeśli `DeviceOrientationEvent` nie działa, dodaj fallback na Generic Sensor API (`AbsoluteOrientationSensor`) gdy dostępne
-   - jeśli sensory niedostępne, zostaw pełną nawigację gestami (bez błędów)
+## Working rules
+- Prefer the smallest change that moves the project forward.
+- Do not introduce unnecessary refactors.
+- Keep the app working on GitHub Pages.
+- Prefer local vendor modules over CDN when CDN hurts reliability or debugging.
+- Keep debug output visible while the viewer is still under active development.
+- If a feature is unstable, keep a safe fallback path.
 
-## Workflow dla agentów
-1) Zlokalizuj entrypoint GitHub Pages:
-   - index.html w root, lub /docs, lub /dist zgodnie z ustawieniami Pages.
-2) Otwórz stronę lokalnie (np. prosty serwer) i sprawdź konsolę błędów.
-3) Napraw błędy importów/CORS/layoutu aż obiekt testowy będzie widoczny.
-4) Dodaj/napraw tryb gyro:
-   - upewnij się, że przycisk zmienia stan (tekst) i debug pokazuje wartości
-5) Zrób commit z opisem zmian + krótką instrukcją testu.
+## Architecture defaults
+- Static frontend only
+- Three.js as renderer
+- GLTFLoader for GLB
+- Local vendor files for three.js modules
+- GitHub Pages as MVP hosting target
 
-## Komendy (jeśli projekt ma bundler)
-- Install: `npm i`
-- Dev: `npm run dev`
-- Build: `npm run build`
-- Preview: `npm run preview`
+## Current product decisions
+- Viewer mode uses gestures only.
+- Do not rely on phone motion in Viewer mode.
+- If AR/WebXR is added later, motion-based viewing belongs there, not in normal Viewer mode.
+- Sections/clipping are postponed until navigation is stable.
 
-Jeśli brak bundlera, użyj prostego serwera statycznego:
-- `npx http-server . -p 8080`
+## Definition of done for the current stage
+A task is only "done" if:
+- a GLB can be loaded through file input or drag-and-drop,
+- the model renders correctly,
+- camera fit-to-view works,
+- reset view works,
+- basic mobile navigation works,
+- debug/error output is still useful,
+- GitHub Pages compatibility is preserved.
 
-## Zasady commitów
-Przy każdym zadaniu, które zmienia pliki:
-- zawsze na końcu zaproponuj nazwę commita,
-- commit ma być krótki i konkretny,
-- pisz go w trybie rozkazującym,
-- jeśli to pomaga, dodaj zakres zmiany.
+## File change policy
+When changing viewer logic:
+- prefer editing `index.html` only unless modularization is clearly useful,
+- avoid changing unrelated files,
+- preserve existing UI labels unless there is a good reason.
+
+## Debug policy
+Always keep or improve:
+- visible "JS OK" / startup status,
+- visible runtime error reporting,
+- useful state in debug overlay when working on loading, controls, or XR.
+
+## Testing expectations
+After meaningful changes:
+- check that the app still loads without crashing,
+- check that fallback behavior still works when a GLB is not loaded,
+- check that GLB loading path still works,
+- check that GitHub Pages relative paths still make sense.
+
+## Commit message policy
+For every task that changes files:
+- always propose a commit message at the end,
+- keep it short and concrete,
+- use imperative mood.
 
 Format:
-Proponowany commit: <treść>
+Suggested commit message: <message>
+
+## Review policy
+When reviewing or summarizing changes:
+- mention root cause,
+- mention what changed,
+- mention remaining risk,
+- mention next recommended step.
+
+If a separate review file exists, follow `code_review.md`.
