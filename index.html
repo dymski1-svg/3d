@@ -595,6 +595,7 @@ Init...</pre>
 
       state.mode = "webgl";
       state.renderer = "Three.js WebGLRenderer";
+      state.currentModel = "fallback cube block";
       state.vendorStatus = "local vendor files OK";
 
       const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -630,12 +631,23 @@ Init...</pre>
 
       const fallbackGroup = new THREE.Group();
       fallbackGroup.add(new THREE.GridHelper(10, 10, 0x33516f, 0x7c91ab));
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 })
-      );
-      cube.position.y = 0.5;
-      fallbackGroup.add(cube);
+      const fallbackCubeSize = 1;
+      const fallbackSpacing = fallbackCubeSize * 10;
+      const fallbackGeometry = new THREE.BoxGeometry(fallbackCubeSize, fallbackCubeSize, fallbackCubeSize);
+      const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 });
+      for (let y = 0; y < 5; y += 1) {
+        for (let x = 0; x < 5; x += 1) {
+          for (let z = 0; z < 5; z += 1) {
+            const cube = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
+            cube.position.set(
+              (x - 2) * fallbackSpacing,
+              (fallbackCubeSize * 0.5) + (y * fallbackSpacing),
+              (z - 2) * fallbackSpacing
+            );
+            fallbackGroup.add(cube);
+          }
+        }
+      }
       scene.add(fallbackGroup);
 
       const loader = new GLTFLoader();
@@ -691,7 +703,7 @@ Init...</pre>
 
       function setFallbackVisible(visible) {
         fallbackGroup.visible = visible;
-        state.currentModel = visible ? "fallback cube" : state.currentModel;
+        state.currentModel = visible ? "fallback cube block" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
         if (visible) {
           state.zoomMode = "normal zoom";
