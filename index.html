@@ -275,6 +275,9 @@ Init...</pre>
       cameraDistance: "-",
       controlsTarget: "-",
       distanceLimits: "-",
+      modelMaxDim: "-",
+      pushThroughLimit: "-",
+      zoomMode: "normal zoom",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -298,6 +301,9 @@ Init...</pre>
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
         `Distance limits: ${state.distanceLimits}`,
+        `Model maxDim: ${state.modelMaxDim}`,
+        `Push-through limit: ${state.pushThroughLimit}`,
+        `Zoom mode: ${state.zoomMode}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
         state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
@@ -372,6 +378,9 @@ Init...</pre>
         state.cameraDistance = camera.distance.toFixed(2);
         state.controlsTarget = `${fallbackTarget.x.toFixed(2)}, ${fallbackTarget.y.toFixed(2)}, ${fallbackTarget.z.toFixed(2)}`;
         state.distanceLimits = `${fallbackMinDistance.toFixed(2)} .. ${fallbackMaxDistance.toFixed(2)}`;
+        state.modelMaxDim = "1.00";
+        state.pushThroughLimit = "fallback off";
+        state.zoomMode = "normal zoom";
         updateDebug(extraLines);
       }
 
@@ -635,6 +644,16 @@ Init...</pre>
         position: new THREE.Vector3(0, 1.6, 4.8),
         target: new THREE.Vector3(0, 0.8, 0),
       };
+      const viewBounds = {
+        center: new THREE.Vector3(0, 0.5, 0),
+        maxDim: 1,
+        pushLimit: 0,
+      };
+      const pushState = {
+        zoomIntent: 0,
+        pinchDistance: 0,
+        pointers: new Map(),
+      };
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
@@ -645,6 +664,11 @@ Init...</pre>
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
+        state.modelMaxDim = viewBounds.maxDim.toFixed(2);
+        state.pushThroughLimit = fallbackGroup.visible ? "fallback off" : viewBounds.pushLimit.toFixed(2);
+        if (state.zoomMode !== "push-through") {
+          state.zoomMode = "normal zoom";
+        }
         updateDebug();
       }
 
@@ -669,6 +693,54 @@ Init...</pre>
         fallbackGroup.visible = visible;
         state.currentModel = visible ? "fallback cube" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
+        if (visible) {
+          state.zoomMode = "normal zoom";
+        }
+      }
+
+      function pointerDistance() {
+        const values = [...pushState.pointers.values()];
+        if (values.length < 2) {
+          return 0;
+        }
+        const [a, b] = values;
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function applyPushThroughZoom() {
+        if (fallbackGroup.visible || pushState.zoomIntent <= 0 || viewBounds.pushLimit <= 0) {
+          if (state.zoomMode !== "push-through") {
+            state.zoomMode = "normal zoom";
+          }
+          pushState.zoomIntent = 0;
+          return;
+        }
+
+        const distance = camera.position.distanceTo(controls.target);
+        const nearTargetThreshold = controls.minDistance + Math.max(viewBounds.maxDim * 0.02, 0.04);
+        if (distance > nearTargetThreshold) {
+          state.zoomMode = "normal zoom";
+          pushState.zoomIntent = 0;
+          return;
+        }
+
+        const forward = new THREE.Vector3().subVectors(controls.target, camera.position).normalize();
+        const projectedTravel = new THREE.Vector3().subVectors(controls.target, viewBounds.center).dot(forward);
+        if (projectedTravel >= viewBounds.pushLimit) {
+          state.zoomMode = "push-through limit";
+          pushState.zoomIntent = 0;
+          updateControlsDebug();
+          return;
+        }
+
+        const step = Math.max(viewBounds.maxDim * 0.04, 0.01);
+        const remaining = viewBounds.pushLimit - projectedTravel;
+        controls.target.addScaledVector(forward, Math.min(step, remaining));
+        camera.lookAt(controls.target);
+        camera.updateMatrixWorld();
+        state.zoomMode = "push-through";
+        pushState.zoomIntent = 0;
+        updateControlsDebug();
       }
 
       function fitCameraToObject(object3D, makeDefault) {
@@ -683,8 +755,9 @@ Init...</pre>
         const fitHeightDistance = maxDim / (2 * Math.tan((camera.fov * Math.PI / 180) / 2));
         const fitWidthDistance = fitHeightDistance / camera.aspect;
         const distance = 1.35 * Math.max(fitHeightDistance, fitWidthDistance);
-        const minDistance = Math.max(maxDim * 0.35, distance * 0.2, 0.1);
-        const maxDistance = Math.max(distance * 6, maxDim * 12, minDistance + 1);
+        const minDistance = 0.01;
+        const maxDistance = Math.max(distance * 6, maxDim * 12, 1.01);
+        const pushLimit = fallbackGroup.visible ? 0 : maxDim * 0.6;
 
         const view = {
           target: center.clone(),
@@ -694,6 +767,10 @@ Init...</pre>
         applyView(view);
         controls.minDistance = minDistance;
         controls.maxDistance = maxDistance;
+        viewBounds.center.copy(center);
+        viewBounds.maxDim = maxDim;
+        viewBounds.pushLimit = pushLimit;
+        state.zoomMode = "normal zoom";
         updateControlsDebug();
         if (makeDefault) {
           defaultView = {
@@ -829,6 +906,35 @@ Init...</pre>
 
       window.addEventListener("resize", updateCanvasSize);
       controls.addEventListener("change", updateControlsDebug);
+      renderer.domElement.addEventListener("wheel", (event) => {
+        pushState.zoomIntent = event.deltaY < 0 ? 1 : -1;
+      }, { passive: true });
+      renderer.domElement.addEventListener("pointerdown", (event) => {
+        if (event.pointerType !== "touch") {
+          return;
+        }
+        pushState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        pushState.pinchDistance = pointerDistance();
+      });
+      renderer.domElement.addEventListener("pointermove", (event) => {
+        if (event.pointerType !== "touch" || !pushState.pointers.has(event.pointerId)) {
+          return;
+        }
+        pushState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        const nextDistance = pointerDistance();
+        if (pushState.pinchDistance > 0 && nextDistance > 0) {
+          pushState.zoomIntent = nextDistance < pushState.pinchDistance ? 1 : -1;
+        }
+        pushState.pinchDistance = nextDistance;
+      });
+      renderer.domElement.addEventListener("pointerup", (event) => {
+        pushState.pointers.delete(event.pointerId);
+        pushState.pinchDistance = pointerDistance();
+      });
+      renderer.domElement.addEventListener("pointercancel", (event) => {
+        pushState.pointers.delete(event.pointerId);
+        pushState.pinchDistance = pointerDistance();
+      });
 
       updateCanvasSize();
       fitCameraToObject(fallbackGroup, true);
@@ -836,6 +942,7 @@ Init...</pre>
 
       renderer.setAnimationLoop(() => {
         controls.update();
+        applyPushThroughZoom();
         renderer.render(scene, camera);
       });
     }
