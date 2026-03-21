@@ -274,6 +274,9 @@ Init...</pre>
       vendorStatus: "checking local vendor files",
       cameraDistance: "-",
       controlsTarget: "-",
+      zoomSpeed: "-",
+      minDistanceDebug: "-",
+      maxDistanceDebug: "-",
       distanceLimits: "-",
       modelMaxDim: "-",
       pushThroughLimit: "-",
@@ -300,6 +303,9 @@ Init...</pre>
         `Active view: ${state.activeView}`,
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
+        `Zoom speed: ${state.zoomSpeed}`,
+        `Min distance: ${state.minDistanceDebug}`,
+        `Max distance: ${state.maxDistanceDebug}`,
         `Distance limits: ${state.distanceLimits}`,
         `Model maxDim: ${state.modelMaxDim}`,
         `Push-through limit: ${state.pushThroughLimit}`,
@@ -377,6 +383,9 @@ Init...</pre>
         state.activeView = "fallback";
         state.cameraDistance = camera.distance.toFixed(2);
         state.controlsTarget = `${fallbackTarget.x.toFixed(2)}, ${fallbackTarget.y.toFixed(2)}, ${fallbackTarget.z.toFixed(2)}`;
+        state.zoomSpeed = "2D fallback";
+        state.minDistanceDebug = fallbackMinDistance.toFixed(2);
+        state.maxDistanceDebug = fallbackMaxDistance.toFixed(2);
         state.distanceLimits = `${fallbackMinDistance.toFixed(2)} .. ${fallbackMaxDistance.toFixed(2)}`;
         state.modelMaxDim = "1.00";
         state.pushThroughLimit = "fallback off";
@@ -675,6 +684,9 @@ Init...</pre>
         state.activeView = fallbackGroup.visible ? "fallback" : "GLB";
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
+        state.zoomSpeed = controls.zoomSpeed.toFixed(2);
+        state.minDistanceDebug = controls.minDistance.toFixed(2);
+        state.maxDistanceDebug = controls.maxDistance.toFixed(2);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
         state.modelMaxDim = viewBounds.maxDim.toFixed(2);
         state.pushThroughLimit = fallbackGroup.visible ? "fallback off" : viewBounds.pushLimit.toFixed(2);
@@ -768,7 +780,7 @@ Init...</pre>
         const fitWidthDistance = fitHeightDistance / camera.aspect;
         const distance = 1.35 * Math.max(fitHeightDistance, fitWidthDistance);
         const minDistance = 0.01;
-        const maxDistance = Math.max(distance * 6, maxDim * 12, 1.01);
+        const maxDistance = Math.max(distance * 4.5, maxDim * 6, 2);
         const pushLimit = fallbackGroup.visible ? 0 : maxDim * 0.6;
 
         const view = {
