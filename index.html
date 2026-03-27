@@ -280,6 +280,8 @@ Init...</pre>
       minDistanceDebug: "-",
       maxDistanceDebug: "-",
       distanceLimits: "-",
+      pinchMidpoint: "-",
+      targetFocusMode: "normal",
       modelMaxDim: "-",
       pushThroughLimit: "-",
       zoomMode: "normal zoom",
@@ -311,6 +313,8 @@ Init...</pre>
         `Min distance: ${state.minDistanceDebug}`,
         `Max distance: ${state.maxDistanceDebug}`,
         `Distance limits: ${state.distanceLimits}`,
+        `Pinch midpoint: ${state.pinchMidpoint}`,
+        `Target focus mode: ${state.targetFocusMode}`,
         `Model maxDim: ${state.modelMaxDim}`,
         `Push-through limit: ${state.pushThroughLimit}`,
         `Zoom mode: ${state.zoomMode}`,
@@ -392,6 +396,8 @@ Init...</pre>
         state.minDistanceDebug = fallbackMinDistance.toFixed(2);
         state.maxDistanceDebug = fallbackMaxDistance.toFixed(2);
         state.distanceLimits = `${fallbackMinDistance.toFixed(2)} .. ${fallbackMaxDistance.toFixed(2)}`;
+        state.pinchMidpoint = "-";
+        state.targetFocusMode = "normal";
         state.modelMaxDim = "1.00";
         state.pushThroughLimit = "fallback off";
         state.zoomMode = "normal zoom";
@@ -680,6 +686,10 @@ Init...</pre>
         pinchDistance: 0,
         pointers: new Map(),
       };
+      const pinchRaycaster = new THREE.Raycaster();
+      const pinchPlane = new THREE.Plane();
+      const pinchPlaneNormal = new THREE.Vector3();
+      const pinchWorldPoint = new THREE.Vector3();
 
       function getZoomStepWorld() {
         return Math.max(viewBounds.maxDim * 0.02, 0.25);
@@ -698,6 +708,10 @@ Init...</pre>
         state.minDistanceDebug = controls.minDistance.toFixed(2);
         state.maxDistanceDebug = controls.maxDistance.toFixed(2);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
+        if (pushState.pointers.size < 2) {
+          state.pinchMidpoint = "-";
+          state.targetFocusMode = "normal";
+        }
         state.modelMaxDim = viewBounds.maxDim.toFixed(2);
         state.pushThroughLimit = fallbackGroup.visible ? "fallback off" : viewBounds.pushLimit.toFixed(2);
         state.zoomMode = "custom linear";
@@ -727,6 +741,8 @@ Init...</pre>
         state.activeView = visible ? "fallback" : "GLB";
         if (visible) {
           state.zoomMode = "custom linear";
+          state.pinchMidpoint = "-";
+          state.targetFocusMode = "normal";
         }
       }
 
@@ -737,6 +753,42 @@ Init...</pre>
         }
         const [a, b] = values;
         return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function focusTargetFromPinchMidpoint() {
+        const values = [...pushState.pointers.values()];
+        if (values.length < 2) {
+          state.pinchMidpoint = "-";
+          state.targetFocusMode = "normal";
+          return;
+        }
+
+        const [a, b] = values;
+        const midpointX = (a.x + b.x) * 0.5;
+        const midpointY = (a.y + b.y) * 0.5;
+        state.pinchMidpoint = `${midpointX.toFixed(0)}, ${midpointY.toFixed(0)}`;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          state.targetFocusMode = "normal";
+          return;
+        }
+
+        const ndc = {
+          x: ((midpointX - rect.left) / rect.width) * 2 - 1,
+          y: -(((midpointY - rect.top) / rect.height) * 2 - 1),
+        };
+
+        pinchRaycaster.setFromCamera(ndc, camera);
+        pinchPlaneNormal.subVectors(controls.target, camera.position).normalize();
+        pinchPlane.setFromNormalAndCoplanarPoint(pinchPlaneNormal, controls.target);
+        if (!pinchRaycaster.ray.intersectPlane(pinchPlane, pinchWorldPoint)) {
+          state.targetFocusMode = "normal";
+          return;
+        }
+
+        controls.target.lerp(pinchWorldPoint, 0.18);
+        state.targetFocusMode = "pinch midpoint";
       }
 
       function applyLinearZoom(direction, scale = 1) {
@@ -943,6 +995,7 @@ Init...</pre>
       controls.addEventListener("change", updateControlsDebug);
       renderer.domElement.addEventListener("wheel", (event) => {
         event.preventDefault();
+        state.targetFocusMode = "normal";
         applyLinearZoom(event.deltaY < 0 ? 1 : -1);
       }, { passive: false });
       renderer.domElement.addEventListener("pointerdown", (event) => {
@@ -961,6 +1014,7 @@ Init...</pre>
         if (pushState.pinchDistance > 0 && nextDistance > 0) {
           const pinchDelta = nextDistance - pushState.pinchDistance;
           if (pinchDelta !== 0) {
+            focusTargetFromPinchMidpoint();
             applyLinearZoom(pinchDelta < 0 ? 1 : -1, Math.min(Math.abs(pinchDelta) / 24, 3));
           }
         }
@@ -969,10 +1023,18 @@ Init...</pre>
       renderer.domElement.addEventListener("pointerup", (event) => {
         pushState.pointers.delete(event.pointerId);
         pushState.pinchDistance = pointerDistance();
+        if (pushState.pointers.size < 2) {
+          state.pinchMidpoint = "-";
+          state.targetFocusMode = "normal";
+        }
       });
       renderer.domElement.addEventListener("pointercancel", (event) => {
         pushState.pointers.delete(event.pointerId);
         pushState.pinchDistance = pointerDistance();
+        if (pushState.pointers.size < 2) {
+          state.pinchMidpoint = "-";
+          state.targetFocusMode = "normal";
+        }
       });
 
       updateCanvasSize();
