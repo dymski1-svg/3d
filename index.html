@@ -276,6 +276,7 @@ Init...</pre>
       cameraDistance: "-",
       controlsTarget: "-",
       zoomSpeed: "-",
+      zoomStep: "-",
       minDistanceDebug: "-",
       maxDistanceDebug: "-",
       distanceLimits: "-",
@@ -306,6 +307,7 @@ Init...</pre>
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
         `Zoom speed: ${state.zoomSpeed}`,
+        `Zoom step: ${state.zoomStep}`,
         `Min distance: ${state.minDistanceDebug}`,
         `Max distance: ${state.maxDistanceDebug}`,
         `Distance limits: ${state.distanceLimits}`,
@@ -386,6 +388,7 @@ Init...</pre>
         state.cameraDistance = camera.distance.toFixed(2);
         state.controlsTarget = `${fallbackTarget.x.toFixed(2)}, ${fallbackTarget.y.toFixed(2)}, ${fallbackTarget.z.toFixed(2)}`;
         state.zoomSpeed = "2D fallback";
+        state.zoomStep = "2D fallback";
         state.minDistanceDebug = fallbackMinDistance.toFixed(2);
         state.maxDistanceDebug = fallbackMaxDistance.toFixed(2);
         state.distanceLimits = `${fallbackMinDistance.toFixed(2)} .. ${fallbackMaxDistance.toFixed(2)}`;
@@ -621,6 +624,7 @@ Init...</pre>
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
       controls.enablePan = true;
+      controls.enableZoom = false;
       controls.rotateSpeed = 0.72;
       controls.zoomSpeed = 1.35;
       controls.minPolarAngle = 0.08;
@@ -673,10 +677,13 @@ Init...</pre>
         pushLimit: 0,
       };
       const pushState = {
-        zoomIntent: 0,
         pinchDistance: 0,
         pointers: new Map(),
       };
+
+      function getZoomStepWorld() {
+        return Math.max(viewBounds.maxDim * 0.02, 0.25);
+      }
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
@@ -686,15 +693,14 @@ Init...</pre>
         state.activeView = fallbackGroup.visible ? "fallback" : "GLB";
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
-        state.zoomSpeed = controls.zoomSpeed.toFixed(2);
+        state.zoomSpeed = controls.enableZoom ? controls.zoomSpeed.toFixed(2) : "orbit off";
+        state.zoomStep = getZoomStepWorld().toFixed(2);
         state.minDistanceDebug = controls.minDistance.toFixed(2);
         state.maxDistanceDebug = controls.maxDistance.toFixed(2);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
         state.modelMaxDim = viewBounds.maxDim.toFixed(2);
         state.pushThroughLimit = fallbackGroup.visible ? "fallback off" : viewBounds.pushLimit.toFixed(2);
-        if (state.zoomMode !== "push-through") {
-          state.zoomMode = "normal zoom";
-        }
+        state.zoomMode = "custom linear";
         updateDebug();
       }
 
@@ -720,7 +726,7 @@ Init...</pre>
         state.currentModel = visible ? "fallback cube block" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
         if (visible) {
-          state.zoomMode = "normal zoom";
+          state.zoomMode = "custom linear";
         }
       }
 
@@ -733,40 +739,42 @@ Init...</pre>
         return Math.hypot(a.x - b.x, a.y - b.y);
       }
 
-      function applyPushThroughZoom() {
-        if (fallbackGroup.visible || pushState.zoomIntent <= 0 || viewBounds.pushLimit <= 0) {
-          if (state.zoomMode !== "close-range push") {
-            state.zoomMode = "normal zoom";
-          }
-          pushState.zoomIntent = 0;
-          return;
-        }
-
-        const distance = camera.position.distanceTo(controls.target);
-        const nearTargetThreshold = Math.max(viewBounds.maxDim * 0.1, 0.3);
-        if (distance > nearTargetThreshold) {
-          state.zoomMode = "normal zoom";
-          pushState.zoomIntent = 0;
+      function applyLinearZoom(direction, scale = 1) {
+        if (direction === 0) {
           return;
         }
 
         const forward = new THREE.Vector3().subVectors(controls.target, camera.position).normalize();
-        const projectedTravel = new THREE.Vector3().subVectors(controls.target, viewBounds.center).dot(forward);
-        if (projectedTravel >= viewBounds.pushLimit) {
-          state.zoomMode = "push-through limit";
-          pushState.zoomIntent = 0;
-          updateControlsDebug();
+        const baseStep = getZoomStepWorld() * Math.max(scale, 0.35);
+        let travel = baseStep * direction;
+
+        if (direction > 0) {
+          const projectedTravel = new THREE.Vector3().subVectors(controls.target, viewBounds.center).dot(forward);
+          const remaining = fallbackGroup.visible ? baseStep : Math.max(viewBounds.pushLimit - projectedTravel, 0);
+          if (remaining <= 0) {
+            state.zoomMode = "push-through limit";
+            updateControlsDebug();
+            return;
+          }
+          travel = Math.min(baseStep, remaining);
+        } else {
+          const distanceFromCenter = camera.position.distanceTo(viewBounds.center);
+          const remaining = Math.max(controls.maxDistance - distanceFromCenter, 0);
+          if (remaining <= 0) {
+            updateControlsDebug();
+            return;
+          }
+          travel = -Math.min(baseStep, remaining);
+        }
+
+        if (!Number.isFinite(travel) || travel === 0) {
           return;
         }
 
-        const step = Math.max(viewBounds.maxDim * 0.035, 0.02);
-        const remaining = viewBounds.pushLimit - projectedTravel;
-        const travel = Math.min(step, remaining);
         camera.position.addScaledVector(forward, travel);
         controls.target.addScaledVector(forward, travel);
         camera.updateMatrixWorld();
-        state.zoomMode = "close-range push";
-        pushState.zoomIntent = 0;
+        state.zoomMode = "custom linear";
         updateControlsDebug();
       }
 
@@ -797,7 +805,7 @@ Init...</pre>
         viewBounds.center.copy(center);
         viewBounds.maxDim = maxDim;
         viewBounds.pushLimit = pushLimit;
-        state.zoomMode = "normal zoom";
+        state.zoomMode = "custom linear";
         updateControlsDebug();
         if (makeDefault) {
           defaultView = {
@@ -934,8 +942,9 @@ Init...</pre>
       window.addEventListener("resize", updateCanvasSize);
       controls.addEventListener("change", updateControlsDebug);
       renderer.domElement.addEventListener("wheel", (event) => {
-        pushState.zoomIntent = event.deltaY < 0 ? 1 : -1;
-      }, { passive: true });
+        event.preventDefault();
+        applyLinearZoom(event.deltaY < 0 ? 1 : -1);
+      }, { passive: false });
       renderer.domElement.addEventListener("pointerdown", (event) => {
         if (event.pointerType !== "touch") {
           return;
@@ -950,7 +959,10 @@ Init...</pre>
         pushState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         const nextDistance = pointerDistance();
         if (pushState.pinchDistance > 0 && nextDistance > 0) {
-          pushState.zoomIntent = nextDistance < pushState.pinchDistance ? 1 : -1;
+          const pinchDelta = nextDistance - pushState.pinchDistance;
+          if (pinchDelta !== 0) {
+            applyLinearZoom(pinchDelta < 0 ? 1 : -1, Math.min(Math.abs(pinchDelta) / 24, 3));
+          }
         }
         pushState.pinchDistance = nextDistance;
       });
@@ -969,7 +981,6 @@ Init...</pre>
 
       renderer.setAnimationLoop(() => {
         controls.update();
-        applyPushThroughZoom();
         renderer.render(scene, camera);
       });
     }
