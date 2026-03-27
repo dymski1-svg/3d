@@ -620,7 +620,7 @@ Init...</pre>
       controls.dampingFactor = 0.08;
       controls.enablePan = true;
       controls.rotateSpeed = 0.72;
-      controls.zoomSpeed = 0.9;
+      controls.zoomSpeed = 1.35;
       controls.minPolarAngle = 0.08;
       controls.maxPolarAngle = Math.PI - 0.08;
       controls.minDistance = 0.2;
@@ -733,7 +733,7 @@ Init...</pre>
 
       function applyPushThroughZoom() {
         if (fallbackGroup.visible || pushState.zoomIntent <= 0 || viewBounds.pushLimit <= 0) {
-          if (state.zoomMode !== "push-through") {
+          if (state.zoomMode !== "close-range push") {
             state.zoomMode = "normal zoom";
           }
           pushState.zoomIntent = 0;
@@ -741,7 +741,7 @@ Init...</pre>
         }
 
         const distance = camera.position.distanceTo(controls.target);
-        const nearTargetThreshold = controls.minDistance + Math.max(viewBounds.maxDim * 0.02, 0.04);
+        const nearTargetThreshold = Math.max(viewBounds.maxDim * 0.1, 0.3);
         if (distance > nearTargetThreshold) {
           state.zoomMode = "normal zoom";
           pushState.zoomIntent = 0;
@@ -757,12 +757,13 @@ Init...</pre>
           return;
         }
 
-        const step = Math.max(viewBounds.maxDim * 0.04, 0.01);
+        const step = Math.max(viewBounds.maxDim * 0.035, 0.02);
         const remaining = viewBounds.pushLimit - projectedTravel;
-        controls.target.addScaledVector(forward, Math.min(step, remaining));
-        camera.lookAt(controls.target);
+        const travel = Math.min(step, remaining);
+        camera.position.addScaledVector(forward, travel);
+        controls.target.addScaledVector(forward, travel);
         camera.updateMatrixWorld();
-        state.zoomMode = "push-through";
+        state.zoomMode = "close-range push";
         pushState.zoomIntent = 0;
         updateControlsDebug();
       }
