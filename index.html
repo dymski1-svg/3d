@@ -269,7 +269,7 @@ Init...</pre>
       mode: "boot",
       renderer: "2D fallback",
       canvasSize: `${window.innerWidth}x${window.innerHeight}`,
-      currentModel: "fallback cube",
+      currentModel: "fallback cube block",
       activeView: "fallback",
       vendorStatus: "checking local vendor files",
       cameraDistance: "-",
@@ -344,7 +344,7 @@ Init...</pre>
       const ctx = canvas.getContext("2d");
       state.mode = "fallback";
       state.renderer = "2D fallback";
-      state.currentModel = "fallback cube";
+      state.currentModel = "fallback cube block";
       state.vendorStatus = `missing ${missingFiles.length} vendor files`;
 
       const cubeVertices = [
@@ -622,12 +622,23 @@ Init...</pre>
 
       const fallbackGroup = new THREE.Group();
       fallbackGroup.add(new THREE.GridHelper(10, 10, 0x33516f, 0x7c91ab));
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 })
-      );
-      cube.position.y = 0.5;
-      fallbackGroup.add(cube);
+      const cubeSize = 1;
+      const spacing = cubeSize * 10;
+      const fallbackGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+      const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 });
+      for (let y = 0; y < 5; y += 1) {
+        for (let x = 0; x < 5; x += 1) {
+          for (let z = 0; z < 5; z += 1) {
+            const cube = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
+            cube.position.set(
+              (x - 2) * spacing,
+              cubeSize * 0.5 + y * spacing,
+              (z - 2) * spacing
+            );
+            fallbackGroup.add(cube);
+          }
+        }
+      }
       scene.add(fallbackGroup);
 
       const loader = new GLTFLoader();
@@ -668,7 +679,7 @@ Init...</pre>
 
       function setFallbackVisible(visible) {
         fallbackGroup.visible = visible;
-        state.currentModel = visible ? "fallback cube" : state.currentModel;
+        state.currentModel = visible ? "fallback cube block" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
 
       }
