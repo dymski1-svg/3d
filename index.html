@@ -670,6 +670,57 @@ Init...</pre>
         fallbackGroup.visible = visible;
         state.currentModel = visible ? "fallback cube" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
+<<<<<<< HEAD
+=======
+        if (visible) {
+          state.zoomMode = "normal zoom";
+        }
+      }
+
+      function pointerDistance() {
+        const values = [...pushState.pointers.values()];
+        if (values.length < 2) {
+          return 0;
+        }
+        const [a, b] = values;
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function applyPushThroughZoom() {
+        if (fallbackGroup.visible || pushState.zoomIntent <= 0 || viewBounds.pushLimit <= 0) {
+          if (state.zoomMode !== "push-through") {
+            state.zoomMode = "normal zoom";
+          }
+          pushState.zoomIntent = 0;
+          return;
+        }
+
+        const distance = camera.position.distanceTo(controls.target);
+        const nearTargetThreshold = controls.minDistance + Math.max(viewBounds.maxDim * 0.02, 0.04);
+        if (distance > nearTargetThreshold) {
+          state.zoomMode = "normal zoom";
+          pushState.zoomIntent = 0;
+          return;
+        }
+
+        const forward = new THREE.Vector3().subVectors(controls.target, camera.position).normalize();
+        const projectedTravel = new THREE.Vector3().subVectors(controls.target, viewBounds.center).dot(forward);
+        if (projectedTravel >= viewBounds.pushLimit) {
+          state.zoomMode = "push-through limit";
+          pushState.zoomIntent = 0;
+          updateControlsDebug();
+          return;
+        }
+
+        const step = Math.max(viewBounds.maxDim * 0.04, 0.01);
+        const remaining = viewBounds.pushLimit - projectedTravel;
+        controls.target.addScaledVector(forward, Math.min(step, remaining));
+        camera.lookAt(controls.target);
+        camera.updateMatrixWorld();
+        state.zoomMode = "push-through";
+        pushState.zoomIntent = 0;
+        updateControlsDebug();
+>>>>>>> parent of 28ad9e7 (Update index.html)
       }
 
       function fitCameraToObject(object3D, makeDefault) {
