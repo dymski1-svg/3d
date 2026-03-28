@@ -234,8 +234,8 @@
     </div>
     <div id="hint">
       <span id="hintFull">Load GLB albo przeciagnij plik na strone. Bez modelu widoczny jest testowy grid + cube.
-      Gesty: 1 palec orbit, pinch dolly/zoom.</span>
-      <span id="hintCompact">Load GLB lub upusc plik. Gesty: orbit i pinch.</span>
+      Gesty: 1 palec orbit, dwa palce pan i pinch zoom.</span>
+      <span id="hintCompact">Load GLB lub upusc plik. Gesty: orbit, pan i pinch.</span>
     </div>
   </div>
   <canvas id="viewer"></canvas>
@@ -611,7 +611,7 @@ Init...</pre>
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
-      controls.enablePan = false;
+      controls.enablePan = true;
       controls.rotateSpeed = 0.72;
       controls.zoomSpeed = 0.9;
       controls.minPolarAngle = 0.08;
