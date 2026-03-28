@@ -252,10 +252,12 @@ Init...</pre>
   <script type="module">
     const canvas = document.getElementById("viewer");
     const debugEl = document.getElementById("debug");
+    const debugTitleEl = document.getElementById("debugTitle");
     const toggleDebugButton = document.getElementById("toggleDebug");
     const fileInput = document.getElementById("fileInput");
     const resetViewButton = document.getElementById("resetView");
     const dropZone = document.getElementById("dropZone");
+    const startupTime = new Date();
 
     const requiredVendorFiles = [
       "./vendor/three/three.module.js",
@@ -265,6 +267,11 @@ Init...</pre>
       "./vendor/three/SkeletonUtils.js",
     ];
 
+    function formatDebugHeaderTimestamp(date) {
+      const pad = (value) => String(value).padStart(2, "0");
+      return `Debug: ${pad(date.getMonth() + 1)}.${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
     const state = {
       mode: "boot",
       renderer: "2D fallback",
@@ -272,7 +279,8 @@ Init...</pre>
       currentModel: "fallback cube block",
       activeView: "fallback",
       vendorStatus: "checking local vendor files",
-      lastUpdate: new Date().toLocaleString("sv-SE").replace("T", " "),
+      lastUpdate: startupTime.toLocaleString("sv-SE").replace("T", " "),
+      debugTitle: formatDebugHeaderTimestamp(startupTime),
       cameraDistance: "-",
       controlsTarget: "-",
       distanceLimits: "-",
@@ -313,6 +321,7 @@ Init...</pre>
       ];
 
       debugEl.textContent = (state.debugExpanded ? fullLines : compactLines).join("\n");
+      debugTitleEl.textContent = state.debugTitle;
       toggleDebugButton.textContent = state.debugExpanded ? "Ukryj debug" : "Debug";
     }
 
