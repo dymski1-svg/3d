@@ -277,7 +277,7 @@
   <div id="cameraTargetMarker" aria-hidden="true"></div>
   <div id="debugPanel">
     <div id="debugBar">
-      <span id="debugTitle">Debug</span>
+      <span id="debugTitle">Debug: 03.28 22:49</span>
       <button id="toggleDebug" type="button">Debug</button>
     </div>
     <pre id="debug">JS OK
@@ -287,13 +287,11 @@ Init...</pre>
   <script type="module">
     const canvas = document.getElementById("viewer");
     const debugEl = document.getElementById("debug");
-    const debugTitleEl = document.getElementById("debugTitle");
     const cameraTargetMarkerEl = document.getElementById("cameraTargetMarker");
     const toggleDebugButton = document.getElementById("toggleDebug");
     const fileInput = document.getElementById("fileInput");
     const resetViewButton = document.getElementById("resetView");
     const dropZone = document.getElementById("dropZone");
-    const startupTime = new Date();
     const ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT = true;
     const ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT = true;
     const TARGET_FOLLOW_ZOOM_FACTOR = 1.0;
@@ -306,11 +304,6 @@ Init...</pre>
       "./vendor/three/SkeletonUtils.js",
     ];
 
-    function formatDebugHeaderTimestamp(date) {
-      const pad = (value) => String(value).padStart(2, "0");
-      return `Debug: ${pad(date.getMonth() + 1)}.${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    }
-
     const state = {
       mode: "boot",
       renderer: "2D fallback",
@@ -318,8 +311,6 @@ Init...</pre>
       currentModel: "fallback cube block",
       activeView: "fallback",
       vendorStatus: "checking local vendor files",
-      lastUpdate: startupTime.toLocaleString("sv-SE").replace("T", " "),
-      debugTitle: formatDebugHeaderTimestamp(startupTime),
       cameraDistance: "-",
       controlsTarget: "-",
       distanceLimits: "-",
@@ -352,7 +343,6 @@ Init...</pre>
         `Mode: ${state.mode}`,
         `Model: ${state.currentModel}`,
         `Active view: ${state.activeView}`,
-        `Last update: ${state.lastUpdate}`,
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
         `Target marker: ${state.targetMarker}`,
@@ -381,7 +371,6 @@ Init...</pre>
       ];
 
       debugEl.textContent = (state.debugExpanded ? fullLines : compactLines).join("\n");
-      debugTitleEl.textContent = state.debugTitle;
       toggleDebugButton.textContent = state.debugExpanded ? "Ukryj debug" : "Debug";
     }
 
