@@ -295,6 +295,8 @@ Init...</pre>
     const dropZone = document.getElementById("dropZone");
     const startupTime = new Date();
     const ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT = true;
+    const ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT = true;
+    const TARGET_FOLLOW_ZOOM_FACTOR = 1.0;
 
     const requiredVendorFiles = [
       "./vendor/three/three.module.js",
@@ -324,6 +326,10 @@ Init...</pre>
       targetMarker: "hidden",
       fallbackTargetClamp: "off",
       fallbackTargetClampBounds: "-",
+      targetFollowZoom: "off",
+      targetFollowZoomFactor: TARGET_FOLLOW_ZOOM_FACTOR.toFixed(1),
+      lastZoomDelta: "0.0000",
+      targetClampedThisFrame: "no",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -350,6 +356,10 @@ Init...</pre>
         `Target marker: ${state.targetMarker}`,
         `Fallback target clamp: ${state.fallbackTargetClamp}`,
         `Clamp bounds: ${state.fallbackTargetClampBounds}`,
+        `Target follow zoom: ${state.targetFollowZoom}`,
+        `Target follow factor: ${state.targetFollowZoomFactor}`,
+        `Last zoom delta: ${state.lastZoomDelta}`,
+        `Target clamped this frame: ${state.targetClampedThisFrame}`,
         `Distance limits: ${state.distanceLimits}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
@@ -361,6 +371,7 @@ Init...</pre>
         `${state.activeView} | ${state.currentModel}`,
         `Dist ${state.cameraDistance}`,
         `Clamp ${state.fallbackTargetClamp}`,
+        `Follow ${state.targetFollowZoom}`,
         `Marker ${state.targetMarker}`,
         state.errorLines.length ? `Err: ${state.errorLines[state.errorLines.length - 1]}` : "Errors: none",
       ];
@@ -739,6 +750,8 @@ Init...</pre>
       const projectedTarget = new THREE.Vector3();
       const cameraToTarget = new THREE.Vector3();
       const fallbackClampSize = new THREE.Vector3();
+      const zoomFollowDirection = new THREE.Vector3();
+      let previousCameraTargetDistance = camera.position.distanceTo(controls.target);
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
@@ -760,11 +773,36 @@ Init...</pre>
 
       function clampControlsTargetToFallback() {
         if (!ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT || !fallbackGroup.visible || !fallbackTargetClampBounds) {
-          return;
+          return false;
         }
+        const before = controls.target.clone();
         controls.target.x = THREE.MathUtils.clamp(controls.target.x, fallbackTargetClampBounds.min.x, fallbackTargetClampBounds.max.x);
         controls.target.y = THREE.MathUtils.clamp(controls.target.y, fallbackTargetClampBounds.min.y, fallbackTargetClampBounds.max.y);
         controls.target.z = THREE.MathUtils.clamp(controls.target.z, fallbackTargetClampBounds.min.z, fallbackTargetClampBounds.max.z);
+        return !before.equals(controls.target);
+      }
+
+      function applyTargetFollowZoomExperiment() {
+        const currentDistance = camera.position.distanceTo(controls.target);
+        const deltaDistance = currentDistance - previousCameraTargetDistance;
+        state.lastZoomDelta = deltaDistance.toFixed(4);
+        state.targetFollowZoom = ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT ? "on" : "off";
+
+        if (!ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT || Math.abs(deltaDistance) < 0.0001) {
+          previousCameraTargetDistance = currentDistance;
+          return false;
+        }
+
+        zoomFollowDirection.copy(controls.target).sub(camera.position);
+        if (zoomFollowDirection.lengthSq() === 0) {
+          previousCameraTargetDistance = currentDistance;
+          return false;
+        }
+
+        zoomFollowDirection.normalize();
+        controls.target.addScaledVector(zoomFollowDirection, -deltaDistance * TARGET_FOLLOW_ZOOM_FACTOR);
+        previousCameraTargetDistance = camera.position.distanceTo(controls.target);
+        return true;
       }
 
       function updateWebGLTargetMarker() {
@@ -815,6 +853,7 @@ Init...</pre>
         camera.position.copy(view.position);
         controls.target.copy(view.target);
         controls.update();
+        previousCameraTargetDistance = camera.position.distanceTo(controls.target);
         updateControlsDebug();
       }
 
@@ -822,7 +861,7 @@ Init...</pre>
         fallbackGroup.visible = visible;
         state.currentModel = visible ? "fallback cube block" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
-
+        previousCameraTargetDistance = camera.position.distanceTo(controls.target);
       }
 
       function fitCameraToObject(object3D, makeDefault) {
@@ -990,8 +1029,15 @@ Init...</pre>
 
       renderer.setAnimationLoop(() => {
         controls.update();
-        clampControlsTargetToFallback();
-        updateWebGLTargetMarker();
+        const targetFollowApplied = applyTargetFollowZoomExperiment();
+        const targetClamped = clampControlsTargetToFallback();
+        state.targetClampedThisFrame = targetClamped ? "yes" : "no";
+        previousCameraTargetDistance = camera.position.distanceTo(controls.target);
+        if (targetFollowApplied || targetClamped) {
+          updateControlsDebug();
+        } else {
+          updateWebGLTargetMarker();
+        }
         renderer.render(scene, camera);
       });
     }
