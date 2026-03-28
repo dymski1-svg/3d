@@ -294,6 +294,7 @@ Init...</pre>
     const resetViewButton = document.getElementById("resetView");
     const dropZone = document.getElementById("dropZone");
     const startupTime = new Date();
+    const ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT = true;
 
     const requiredVendorFiles = [
       "./vendor/three/three.module.js",
@@ -321,6 +322,8 @@ Init...</pre>
       controlsTarget: "-",
       distanceLimits: "-",
       targetMarker: "hidden",
+      fallbackTargetClamp: "off",
+      fallbackTargetClampBounds: "-",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -345,6 +348,8 @@ Init...</pre>
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
         `Target marker: ${state.targetMarker}`,
+        `Fallback target clamp: ${state.fallbackTargetClamp}`,
+        `Clamp bounds: ${state.fallbackTargetClampBounds}`,
         `Distance limits: ${state.distanceLimits}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
@@ -355,6 +360,7 @@ Init...</pre>
         "JS OK",
         `${state.activeView} | ${state.currentModel}`,
         `Dist ${state.cameraDistance}`,
+        `Clamp ${state.fallbackTargetClamp}`,
         `Marker ${state.targetMarker}`,
         state.errorLines.length ? `Err: ${state.errorLines[state.errorLines.length - 1]}` : "Errors: none",
       ];
@@ -729,11 +735,36 @@ Init...</pre>
         position: new THREE.Vector3(0, 1.6, 4.8),
         target: new THREE.Vector3(0, 0.8, 0),
       };
+      let fallbackTargetClampBounds = null;
       const projectedTarget = new THREE.Vector3();
       const cameraToTarget = new THREE.Vector3();
+      const fallbackClampSize = new THREE.Vector3();
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
+      }
+
+      if (ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT) {
+        const fallbackBox = new THREE.Box3().setFromObject(fallbackGroup);
+        if (!fallbackBox.isEmpty()) {
+          fallbackBox.getSize(fallbackClampSize);
+          const marginX = Math.max(fallbackClampSize.x * 0.1, 0.1);
+          const marginY = Math.max(fallbackClampSize.y * 0.1, 0.1);
+          const marginZ = Math.max(fallbackClampSize.z * 0.1, 0.1);
+          fallbackTargetClampBounds = {
+            min: fallbackBox.min.clone().sub(new THREE.Vector3(marginX, marginY, marginZ)),
+            max: fallbackBox.max.clone().add(new THREE.Vector3(marginX, marginY, marginZ)),
+          };
+        }
+      }
+
+      function clampControlsTargetToFallback() {
+        if (!ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT || !fallbackGroup.visible || !fallbackTargetClampBounds) {
+          return;
+        }
+        controls.target.x = THREE.MathUtils.clamp(controls.target.x, fallbackTargetClampBounds.min.x, fallbackTargetClampBounds.max.x);
+        controls.target.y = THREE.MathUtils.clamp(controls.target.y, fallbackTargetClampBounds.min.y, fallbackTargetClampBounds.max.y);
+        controls.target.z = THREE.MathUtils.clamp(controls.target.z, fallbackTargetClampBounds.min.z, fallbackTargetClampBounds.max.z);
       }
 
       function updateWebGLTargetMarker() {
@@ -762,6 +793,10 @@ Init...</pre>
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
+        state.fallbackTargetClamp = ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT && fallbackGroup.visible && fallbackTargetClampBounds ? "on" : "off";
+        state.fallbackTargetClampBounds = fallbackTargetClampBounds
+          ? `${formatVector3(fallbackTargetClampBounds.min)} .. ${formatVector3(fallbackTargetClampBounds.max)}`
+          : "-";
         updateWebGLTargetMarker();
         updateDebug();
       }
@@ -955,6 +990,7 @@ Init...</pre>
 
       renderer.setAnimationLoop(() => {
         controls.update();
+        clampControlsTargetToFallback();
         updateWebGLTargetMarker();
         renderer.render(scene, camera);
       });
