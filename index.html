@@ -114,6 +114,40 @@
       display: flex;
     }
 
+    #cameraTargetMarker {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 18;
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+      display: none;
+      transform: translate(-50%, -50%);
+      opacity: 0.9;
+    }
+
+    #cameraTargetMarker::before,
+    #cameraTargetMarker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: rgba(12, 32, 55, 0.82);
+      transform: translate(-50%, -50%);
+      border-radius: 999px;
+    }
+
+    #cameraTargetMarker::before {
+      width: 16px;
+      height: 2px;
+    }
+
+    #cameraTargetMarker::after {
+      width: 2px;
+      height: 16px;
+    }
+
     #debugPanel {
       position: fixed;
       left: 12px;
@@ -240,6 +274,7 @@
   </div>
   <canvas id="viewer"></canvas>
   <div id="dropZone">Upusc plik .glb</div>
+  <div id="cameraTargetMarker" aria-hidden="true"></div>
   <div id="debugPanel">
     <div id="debugBar">
       <span id="debugTitle">Debug</span>
@@ -253,6 +288,7 @@ Init...</pre>
     const canvas = document.getElementById("viewer");
     const debugEl = document.getElementById("debug");
     const debugTitleEl = document.getElementById("debugTitle");
+    const cameraTargetMarkerEl = document.getElementById("cameraTargetMarker");
     const toggleDebugButton = document.getElementById("toggleDebug");
     const fileInput = document.getElementById("fileInput");
     const resetViewButton = document.getElementById("resetView");
@@ -284,6 +320,7 @@ Init...</pre>
       cameraDistance: "-",
       controlsTarget: "-",
       distanceLimits: "-",
+      targetMarker: "hidden",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -307,6 +344,7 @@ Init...</pre>
         `Last update: ${state.lastUpdate}`,
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
+        `Target marker: ${state.targetMarker}`,
         `Distance limits: ${state.distanceLimits}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
@@ -317,6 +355,7 @@ Init...</pre>
         "JS OK",
         `${state.activeView} | ${state.currentModel}`,
         `Dist ${state.cameraDistance}`,
+        `Marker ${state.targetMarker}`,
         state.errorLines.length ? `Err: ${state.errorLines[state.errorLines.length - 1]}` : "Errors: none",
       ];
 
@@ -338,6 +377,18 @@ Init...</pre>
       const reason = event.reason && event.reason.message ? event.reason.message : event.reason;
       appendError(`PROMISE: ${reason || "unknown rejection"}`);
     });
+
+    function setTargetMarker(position) {
+      if (!position) {
+        cameraTargetMarkerEl.style.display = "none";
+        state.targetMarker = "hidden";
+        return;
+      }
+      cameraTargetMarkerEl.style.display = "block";
+      cameraTargetMarkerEl.style.left = `${position.x}px`;
+      cameraTargetMarkerEl.style.top = `${position.y}px`;
+      state.targetMarker = "visible";
+    }
 
     async function findMissingVendorFiles() {
       const checks = await Promise.all(requiredVendorFiles.map(async (path) => {
@@ -433,6 +484,22 @@ Init...</pre>
         ]);
       }
 
+      function updateFallbackTargetMarker() {
+        const projected = project([fallbackTarget.x, fallbackTarget.y, fallbackTarget.z]);
+        if (!projected) {
+          setTargetMarker(null);
+          return;
+        }
+        const dpr = canvas.width / Math.max(window.innerWidth, 1);
+        const x = projected.x / dpr;
+        const y = projected.y / dpr;
+        if (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight) {
+          setTargetMarker(null);
+          return;
+        }
+        setTargetMarker({ x, y });
+      }
+
       let activePointers = new Map();
       let lastDrag = null;
       let pinchDistance = 0;
@@ -468,6 +535,7 @@ Init...</pre>
           }
           pinchDistance = next;
           updateFallbackDebug();
+          updateFallbackTargetMarker();
           return;
         }
         if (activePointers.size === 1 && lastDrag && lastDrag.id === event.pointerId) {
@@ -477,6 +545,7 @@ Init...</pre>
           camera.yaw -= dx * 0.0085;
           camera.pitch = clamp(camera.pitch - dy * 0.0085, -1.25, 1.25);
           updateFallbackDebug();
+          updateFallbackTargetMarker();
         }
       };
 
@@ -498,6 +567,7 @@ Init...</pre>
         camera.pitch = -0.42;
         camera.distance = 6.6;
         updateFallbackDebug();
+        updateFallbackTargetMarker();
       };
 
       fileInput.onchange = (event) => {
@@ -582,6 +652,7 @@ Init...</pre>
         ctx.fillStyle = "rgba(11, 25, 44, 0.7)";
         ctx.font = `${Math.max(14, canvas.width * 0.014)}px system-ui, sans-serif`;
         ctx.fillText("Brak lokalnych plikow Three.js - fallback grid + cube", 24, 42);
+        updateFallbackTargetMarker();
         requestAnimationFrame(render);
       }
 
@@ -658,9 +729,32 @@ Init...</pre>
         position: new THREE.Vector3(0, 1.6, 4.8),
         target: new THREE.Vector3(0, 0.8, 0),
       };
+      const projectedTarget = new THREE.Vector3();
+      const cameraToTarget = new THREE.Vector3();
 
       function formatVector3(vector) {
         return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
+      }
+
+      function updateWebGLTargetMarker() {
+        cameraToTarget.copy(controls.target).sub(camera.position);
+        if (cameraToTarget.lengthSq() === 0 || camera.getWorldDirection(projectedTarget).dot(cameraToTarget.normalize()) <= 0) {
+          setTargetMarker(null);
+          return;
+        }
+        projectedTarget.copy(controls.target).project(camera);
+        if (
+          projectedTarget.z < -1 || projectedTarget.z > 1 ||
+          projectedTarget.x < -1 || projectedTarget.x > 1 ||
+          projectedTarget.y < -1 || projectedTarget.y > 1
+        ) {
+          setTargetMarker(null);
+          return;
+        }
+        setTargetMarker({
+          x: (projectedTarget.x * 0.5 + 0.5) * window.innerWidth,
+          y: (-projectedTarget.y * 0.5 + 0.5) * window.innerHeight,
+        });
       }
 
       function updateControlsDebug() {
@@ -668,6 +762,7 @@ Init...</pre>
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
+        updateWebGLTargetMarker();
         updateDebug();
       }
 
@@ -860,6 +955,7 @@ Init...</pre>
 
       renderer.setAnimationLoop(() => {
         controls.update();
+        updateWebGLTargetMarker();
         renderer.render(scene, camera);
       });
     }
