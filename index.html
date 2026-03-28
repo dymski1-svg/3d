@@ -272,19 +272,9 @@ Init...</pre>
       currentModel: "fallback cube",
       activeView: "fallback",
       vendorStatus: "checking local vendor files",
-      lastUpdate: new Date().toLocaleString("sv-SE").replace("T", " "),
       cameraDistance: "-",
       controlsTarget: "-",
-      zoomSpeed: "-",
-      zoomStep: "-",
-      minDistanceDebug: "-",
-      maxDistanceDebug: "-",
       distanceLimits: "-",
-      pinchMidpoint: "-",
-      targetFocusMode: "normal",
-      modelMaxDim: "-",
-      pushThroughLimit: "-",
-      zoomMode: "normal zoom",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -305,19 +295,9 @@ Init...</pre>
         `Mode: ${state.mode}`,
         `Model: ${state.currentModel}`,
         `Active view: ${state.activeView}`,
-        `Last update: ${state.lastUpdate}`,
         `Camera distance: ${state.cameraDistance}`,
         `Target: ${state.controlsTarget}`,
-        `Zoom speed: ${state.zoomSpeed}`,
-        `Zoom step: ${state.zoomStep}`,
-        `Min distance: ${state.minDistanceDebug}`,
-        `Max distance: ${state.maxDistanceDebug}`,
         `Distance limits: ${state.distanceLimits}`,
-        `Pinch midpoint: ${state.pinchMidpoint}`,
-        `Target focus mode: ${state.targetFocusMode}`,
-        `Model maxDim: ${state.modelMaxDim}`,
-        `Push-through limit: ${state.pushThroughLimit}`,
-        `Zoom mode: ${state.zoomMode}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
         state.errorLines.length ? `Errors:\n${state.errorLines.join("\n")}` : "Errors: none",
@@ -391,16 +371,7 @@ Init...</pre>
         state.activeView = "fallback";
         state.cameraDistance = camera.distance.toFixed(2);
         state.controlsTarget = `${fallbackTarget.x.toFixed(2)}, ${fallbackTarget.y.toFixed(2)}, ${fallbackTarget.z.toFixed(2)}`;
-        state.zoomSpeed = "2D fallback";
-        state.zoomStep = "-";
-        state.minDistanceDebug = fallbackMinDistance.toFixed(2);
-        state.maxDistanceDebug = fallbackMaxDistance.toFixed(2);
         state.distanceLimits = `${fallbackMinDistance.toFixed(2)} .. ${fallbackMaxDistance.toFixed(2)}`;
-        state.pinchMidpoint = "-";
-        state.targetFocusMode = "normal";
-        state.modelMaxDim = "1.00";
-        state.pushThroughLimit = "off";
-        state.zoomMode = "2D fallback";
         updateDebug(extraLines);
       }
 
@@ -615,7 +586,7 @@ Init...</pre>
 
       state.mode = "webgl";
       state.renderer = "Three.js WebGLRenderer";
-      state.currentModel = "fallback cube block";
+      state.currentModel = "fallback cube";
       state.vendorStatus = "local vendor files OK";
 
       const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -629,12 +600,11 @@ Init...</pre>
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
-      controls.enablePan = true;
-      controls.enableZoom = true;
+      controls.enablePan = false;
       controls.rotateSpeed = 0.72;
-      controls.zoomSpeed = 1.35;
+      controls.zoomSpeed = 0.9;
       controls.minPolarAngle = 0.08;
-      controls.maxPolarAngle = Math.PI - 0.08;
+      controls.maxPolarAngle = Math.PI * 0.48;
       controls.minDistance = 0.2;
       controls.maxDistance = 500;
       controls.target.set(0, 1, 0);
@@ -652,23 +622,12 @@ Init...</pre>
 
       const fallbackGroup = new THREE.Group();
       fallbackGroup.add(new THREE.GridHelper(10, 10, 0x33516f, 0x7c91ab));
-      const fallbackCubeSize = 1;
-      const fallbackSpacing = fallbackCubeSize * 10;
-      const fallbackGeometry = new THREE.BoxGeometry(fallbackCubeSize, fallbackCubeSize, fallbackCubeSize);
-      const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 });
-      for (let y = 0; y < 5; y += 1) {
-        for (let x = 0; x < 5; x += 1) {
-          for (let z = 0; z < 5; z += 1) {
-            const cube = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
-            cube.position.set(
-              (x - 2) * fallbackSpacing,
-              (fallbackCubeSize * 0.5) + (y * fallbackSpacing),
-              (z - 2) * fallbackSpacing
-            );
-            fallbackGroup.add(cube);
-          }
-        }
-      }
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0x2c7be5, metalness: 0.08, roughness: 0.72 })
+      );
+      cube.position.y = 0.5;
+      fallbackGroup.add(cube);
       scene.add(fallbackGroup);
 
       const loader = new GLTFLoader();
@@ -676,10 +635,6 @@ Init...</pre>
       let defaultView = {
         position: new THREE.Vector3(0, 1.6, 4.8),
         target: new THREE.Vector3(0, 0.8, 0),
-      };
-      const viewBounds = {
-        center: new THREE.Vector3(0, 0.5, 0),
-        maxDim: 1,
       };
 
       function formatVector3(vector) {
@@ -690,16 +645,7 @@ Init...</pre>
         state.activeView = fallbackGroup.visible ? "fallback" : "GLB";
         state.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
         state.controlsTarget = formatVector3(controls.target);
-        state.zoomSpeed = controls.zoomSpeed.toFixed(2);
-        state.zoomStep = "-";
-        state.minDistanceDebug = controls.minDistance.toFixed(2);
-        state.maxDistanceDebug = controls.maxDistance.toFixed(2);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
-        state.pinchMidpoint = "-";
-        state.targetFocusMode = "normal";
-        state.modelMaxDim = viewBounds.maxDim.toFixed(2);
-        state.pushThroughLimit = "off";
-        state.zoomMode = "orbit dolly";
         updateDebug();
       }
 
@@ -722,13 +668,8 @@ Init...</pre>
 
       function setFallbackVisible(visible) {
         fallbackGroup.visible = visible;
-        state.currentModel = visible ? "fallback cube block" : state.currentModel;
+        state.currentModel = visible ? "fallback cube" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
-        if (visible) {
-          state.zoomMode = "orbit dolly";
-          state.pinchMidpoint = "-";
-          state.targetFocusMode = "normal";
-        }
       }
 
       function fitCameraToObject(object3D, makeDefault) {
@@ -743,8 +684,8 @@ Init...</pre>
         const fitHeightDistance = maxDim / (2 * Math.tan((camera.fov * Math.PI / 180) / 2));
         const fitWidthDistance = fitHeightDistance / camera.aspect;
         const distance = 1.35 * Math.max(fitHeightDistance, fitWidthDistance);
-        const minDistance = 0.01;
-        const maxDistance = Math.max(distance * 4.5, maxDim * 6, 2);
+        const minDistance = Math.max(maxDim * 0.35, distance * 0.2, 0.1);
+        const maxDistance = Math.max(distance * 6, maxDim * 12, minDistance + 1);
 
         const view = {
           target: center.clone(),
@@ -754,9 +695,6 @@ Init...</pre>
         applyView(view);
         controls.minDistance = minDistance;
         controls.maxDistance = maxDistance;
-        viewBounds.center.copy(center);
-        viewBounds.maxDim = maxDim;
-        state.zoomMode = "orbit dolly";
         updateControlsDebug();
         if (makeDefault) {
           defaultView = {
