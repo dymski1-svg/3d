@@ -242,7 +242,7 @@
   <div id="dropZone">Upusc plik .glb</div>
   <div id="debugPanel">
     <div id="debugBar">
-      <span id="debugTitle">Debug: 03.28 22:49</span>
+      <span id="debugTitle">Debug: 03.29 12:53</span>
       <button id="toggleDebug" type="button">Debug</button>
     </div>
     <pre id="debug">JS OK
@@ -665,15 +665,26 @@ Init...</pre>
         }
       }
       scene.add(fallbackGroup);
-      const targetGizmo = new THREE.AxesHelper(0.35);
-      targetGizmo.renderOrder = 999;
-      targetGizmo.traverse((node) => {
-        if (node.material) {
-          node.material.depthTest = false;
-          node.material.transparent = true;
-          node.material.opacity = 0.92;
-        }
-      });
+      const targetGizmo = new THREE.Group();
+      const targetGizmoBaseHalfLength = 1;
+      const targetGizmoPixelSize = 18;
+
+      function createTargetGizmoLine(color, from, to) {
+        const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+        const material = new THREE.LineBasicMaterial({
+          color,
+          depthTest: false,
+          transparent: true,
+          opacity: 0.92,
+        });
+        const line = new THREE.Line(geometry, material);
+        line.renderOrder = 999;
+        return line;
+      }
+
+      targetGizmo.add(createTargetGizmoLine(0xff4d4f, new THREE.Vector3(-1, 0, 0), new THREE.Vector3(1, 0, 0)));
+      targetGizmo.add(createTargetGizmoLine(0x2fbf71, new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 1, 0)));
+      targetGizmo.add(createTargetGizmoLine(0x2f6bff, new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 1)));
       scene.add(targetGizmo);
 
       const loader = new GLTFLoader();
@@ -688,6 +699,7 @@ Init...</pre>
       const proposedTarget = new THREE.Vector3();
       const acceptedCameraPosition = new THREE.Vector3();
       const acceptedControlsTarget = new THREE.Vector3();
+      const targetGizmoToCamera = new THREE.Vector3();
       let previousCameraTargetDistance = camera.position.distanceTo(controls.target);
 
       function formatVector3(vector) {
@@ -775,7 +787,13 @@ Init...</pre>
 
       function updateWebGLTargetGizmo() {
         targetGizmo.position.copy(controls.target);
-        state.targetMarker = "3D axes";
+        targetGizmoToCamera.copy(camera.position).sub(targetGizmo.position);
+        const distance = Math.max(targetGizmoToCamera.length(), 0.001);
+        const viewportHeight = Math.max(canvas.clientHeight || window.innerHeight || 1, 1);
+        const worldUnitsPerPixel = (2 * distance * Math.tan((camera.fov * Math.PI / 180) / 2)) / viewportHeight;
+        const scale = targetGizmoPixelSize * 0.5 * worldUnitsPerPixel / targetGizmoBaseHalfLength;
+        targetGizmo.scale.setScalar(scale);
+        state.targetMarker = "3D cross";
       }
 
       function updateControlsDebug() {

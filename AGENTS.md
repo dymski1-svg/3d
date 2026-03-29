@@ -52,6 +52,7 @@ Always keep or improve:
 - visible "JS OK" / startup status,
 - visible runtime error reporting,
 - useful state in debug overlay when working on loading, controls, or XR.
+- debug header timestamp as a static string in `index.html`, updated by Codex once per file-editing session; if one session includes multiple patches, the timestamp does not need to change multiple times.
 
 ## Testing expectations
 After meaningful changes:
