@@ -52,7 +52,6 @@ Always keep or improve:
 - visible "JS OK" / startup status,
 - visible runtime error reporting,
 - useful state in debug overlay when working on loading, controls, or XR.
-- debug header timestamp as a static string in `index.html`, updated by Codex once per file-editing session; if one session includes multiple patches, the timestamp does not need to change multiple times.
 
 ## Testing expectations
 After meaningful changes:
@@ -76,5 +75,14 @@ When reviewing or summarizing changes:
 - mention what changed,
 - mention remaining risk,
 - mention next recommended step.
+
+### Debug header timestamp
+- The debug header in `index.html` must use a static string in the format: `Debug: MM.DD HH:MM`.
+- This timestamp is a static string in `index.html`, not a runtime-generated value.
+- Codex must update it in every file-editing session.
+- If multiple patches happen in one session, update it once at the end, using the final save time of that session.
+- It must match the final date and time when `index.html` is saved in that session.
+- Do not use `Date`, `new Date()`, startup time, or browser time for this header.
+- Do not re-add a `Last update` runtime line to the debug output.
 
 If a separate review file exists, follow `code_review.md`.
