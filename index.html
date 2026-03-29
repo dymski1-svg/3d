@@ -242,7 +242,7 @@
   <div id="dropZone">Upusc plik .glb</div>
   <div id="debugPanel">
     <div id="debugBar">
-      <span id="debugTitle">Debug: 03.29 18:27</span>
+      <span id="debugTitle">Debug: 03.29 18:38</span>
       <button id="toggleDebug" type="button">Debug</button>
     </div>
     <pre id="debug">JS OK
@@ -283,10 +283,14 @@ Init...</pre>
       fallbackTargetClampBounds: "-",
       targetFollowZoom: "off",
       targetFollowZoomFactor: TARGET_FOLLOW_ZOOM_FACTOR.toFixed(1),
+      zoomMode: "orbit dolly",
+      zoomIntent: "none",
       lastZoomDelta: "0.0000",
       targetBlockedByClamp: "no",
       proposedTargetInsideBounds: "-",
       clampMode: "off",
+      distanceToMin: "-",
+      pushStep: "-",
       debugExpanded: !window.matchMedia("(max-width: 640px)").matches,
       errorLines: [],
       lastObjectURL: null,
@@ -315,9 +319,13 @@ Init...</pre>
         `Clamp mode: ${state.clampMode}`,
         `Target follow zoom: ${state.targetFollowZoom}`,
         `Target follow factor: ${state.targetFollowZoomFactor}`,
+        `Zoom mode: ${state.zoomMode}`,
+        `Zoom intent: ${state.zoomIntent}`,
         `Last zoom delta: ${state.lastZoomDelta}`,
         `Proposed target inside bounds: ${state.proposedTargetInsideBounds}`,
         `Target blocked by clamp: ${state.targetBlockedByClamp}`,
+        `Distance to min: ${state.distanceToMin}`,
+        `Push step: ${state.pushStep}`,
         `Distance limits: ${state.distanceLimits}`,
         `Vendor: ${state.vendorStatus}`,
         ...extraLines,
@@ -329,6 +337,7 @@ Init...</pre>
         `${state.activeView} | ${state.currentModel}`,
         `Dist ${state.cameraDistance}`,
         `Clamp ${state.fallbackTargetClamp}`,
+        `Zoom ${state.zoomMode}`,
         `Follow ${state.targetFollowZoom}`,
         `Gizmo ${state.targetMarker}`,
         state.errorLines.length ? `Err: ${state.errorLines[state.errorLines.length - 1]}` : "Errors: none",
@@ -698,6 +707,8 @@ Init...</pre>
       const zoomFollowDirection = new THREE.Vector3();
       const proposedTarget = new THREE.Vector3();
       const targetGizmoToCamera = new THREE.Vector3();
+      let zoomIntentFramesRemaining = 0;
+      let pinchIntentDistance = 0;
       let previousCameraTargetDistance = camera.position.distanceTo(controls.target);
 
       function formatVector3(vector) {
@@ -731,13 +742,31 @@ Init...</pre>
         return inside;
       }
 
+      function setZoomIntent(intent) {
+        state.zoomIntent = intent;
+        zoomIntentFramesRemaining = intent === "none" ? 0 : 4;
+      }
+
+      function refreshZoomIntent() {
+        if (zoomIntentFramesRemaining > 0) {
+          zoomIntentFramesRemaining -= 1;
+          return;
+        }
+        state.zoomIntent = "none";
+      }
+
       function applyTargetFollowZoomExperiment() {
         const currentDistance = camera.position.distanceTo(controls.target);
         const deltaDistance = currentDistance - previousCameraTargetDistance;
+        const distanceToMin = currentDistance - controls.minDistance;
+        const pushTriggerEpsilon = Math.max(controls.minDistance * 0.05, 0.0025);
         state.lastZoomDelta = deltaDistance.toFixed(4);
         state.targetFollowZoom = ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT ? "on" : "off";
+        state.distanceToMin = distanceToMin.toFixed(4);
+        state.pushStep = "-";
+        state.zoomMode = "orbit dolly";
 
-        if (!ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT || Math.abs(deltaDistance) < 0.0001) {
+        if (!ENABLE_TARGET_FOLLOW_ZOOM_EXPERIMENT) {
           previousCameraTargetDistance = currentDistance;
           return false;
         }
@@ -748,14 +777,27 @@ Init...</pre>
           return false;
         }
 
+        if (state.zoomIntent !== "in" || distanceToMin > pushTriggerEpsilon) {
+          state.targetBlockedByClamp = "no";
+          if (!fallbackGroup.visible) {
+            state.proposedTargetInsideBounds = "-";
+          }
+          previousCameraTargetDistance = currentDistance;
+          return false;
+        }
+
         zoomFollowDirection.normalize();
-        proposedTarget.copy(controls.target).addScaledVector(zoomFollowDirection, -deltaDistance * TARGET_FOLLOW_ZOOM_FACTOR);
+        const pushStep = Math.max(controls.minDistance * 0.18, 0.02);
+        state.zoomMode = "target-led push";
+        state.pushStep = pushStep.toFixed(4);
+        proposedTarget.copy(controls.target).addScaledVector(zoomFollowDirection, pushStep);
         if (!isFallbackTargetInsideBounds(proposedTarget)) {
           state.targetBlockedByClamp = "yes";
           previousCameraTargetDistance = currentDistance;
           return false;
         }
         controls.target.copy(proposedTarget);
+        camera.position.addScaledVector(zoomFollowDirection, pushStep);
         state.targetBlockedByClamp = "no";
         previousCameraTargetDistance = camera.position.distanceTo(controls.target);
         return true;
@@ -969,6 +1011,35 @@ Init...</pre>
 
       window.addEventListener("resize", updateCanvasSize);
       controls.addEventListener("change", updateControlsDebug);
+      renderer.domElement.addEventListener("wheel", (event) => {
+        setZoomIntent(event.deltaY < 0 ? "in" : "out");
+      }, { passive: true });
+      renderer.domElement.addEventListener("touchstart", (event) => {
+        if (event.touches.length === 2) {
+          pinchIntentDistance = Math.hypot(
+            event.touches[0].clientX - event.touches[1].clientX,
+            event.touches[0].clientY - event.touches[1].clientY
+          );
+        }
+      }, { passive: true });
+      renderer.domElement.addEventListener("touchmove", (event) => {
+        if (event.touches.length !== 2) {
+          return;
+        }
+        const nextDistance = Math.hypot(
+          event.touches[0].clientX - event.touches[1].clientX,
+          event.touches[0].clientY - event.touches[1].clientY
+        );
+        if (pinchIntentDistance > 0 && Math.abs(nextDistance - pinchIntentDistance) > 2) {
+          setZoomIntent(nextDistance > pinchIntentDistance ? "in" : "out");
+        }
+        pinchIntentDistance = nextDistance;
+      }, { passive: true });
+      const clearPinchIntent = () => {
+        pinchIntentDistance = 0;
+      };
+      renderer.domElement.addEventListener("touchend", clearPinchIntent, { passive: true });
+      renderer.domElement.addEventListener("touchcancel", clearPinchIntent, { passive: true });
 
       updateCanvasSize();
       fitCameraToObject(fallbackGroup, true);
@@ -983,6 +1054,7 @@ Init...</pre>
         } else {
           updateWebGLTargetGizmo();
         }
+        refreshZoomIntent();
         renderer.render(scene, camera);
       });
     }
