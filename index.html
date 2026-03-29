@@ -697,8 +697,6 @@ Init...</pre>
       const fallbackClampSize = new THREE.Vector3();
       const zoomFollowDirection = new THREE.Vector3();
       const proposedTarget = new THREE.Vector3();
-      const acceptedCameraPosition = new THREE.Vector3();
-      const acceptedControlsTarget = new THREE.Vector3();
       const targetGizmoToCamera = new THREE.Vector3();
       let previousCameraTargetDistance = camera.position.distanceTo(controls.target);
 
@@ -733,27 +731,6 @@ Init...</pre>
         return inside;
       }
 
-      function storeAcceptedCameraState() {
-        acceptedCameraPosition.copy(camera.position);
-        acceptedControlsTarget.copy(controls.target);
-      }
-
-      function blockDisallowedFallbackTargetMotion() {
-        if (!ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT || !fallbackGroup.visible || !fallbackTargetClampBounds) {
-          state.targetBlockedByClamp = "no";
-          return false;
-        }
-        if (isFallbackTargetInsideBounds(controls.target)) {
-          storeAcceptedCameraState();
-          state.targetBlockedByClamp = "no";
-          return false;
-        }
-        camera.position.copy(acceptedCameraPosition);
-        controls.target.copy(acceptedControlsTarget);
-        state.targetBlockedByClamp = "yes";
-        return true;
-      }
-
       function applyTargetFollowZoomExperiment() {
         const currentDistance = camera.position.distanceTo(controls.target);
         const deltaDistance = currentDistance - previousCameraTargetDistance;
@@ -780,7 +757,6 @@ Init...</pre>
         }
         controls.target.copy(proposedTarget);
         state.targetBlockedByClamp = "no";
-        storeAcceptedCameraState();
         previousCameraTargetDistance = camera.position.distanceTo(controls.target);
         return true;
       }
@@ -802,7 +778,7 @@ Init...</pre>
         state.controlsTarget = formatVector3(controls.target);
         state.distanceLimits = `${controls.minDistance.toFixed(2)} .. ${controls.maxDistance.toFixed(2)}`;
         state.fallbackTargetClamp = ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT && fallbackGroup.visible && fallbackTargetClampBounds ? "on" : "off";
-        state.clampMode = ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT && fallbackGroup.visible && fallbackTargetClampBounds ? "predict-and-block" : "off";
+        state.clampMode = ENABLE_FALLBACK_TARGET_CLAMP_EXPERIMENT && fallbackGroup.visible && fallbackTargetClampBounds ? "predict-and-block target only" : "off";
         state.fallbackTargetClampBounds = fallbackTargetClampBounds
           ? `${formatVector3(fallbackTargetClampBounds.min)} .. ${formatVector3(fallbackTargetClampBounds.max)}`
           : "-";
@@ -824,7 +800,6 @@ Init...</pre>
         camera.position.copy(view.position);
         controls.target.copy(view.target);
         controls.update();
-        storeAcceptedCameraState();
         previousCameraTargetDistance = camera.position.distanceTo(controls.target);
         updateControlsDebug();
       }
@@ -833,7 +808,6 @@ Init...</pre>
         fallbackGroup.visible = visible;
         state.currentModel = visible ? "fallback cube block" : state.currentModel;
         state.activeView = visible ? "fallback" : "GLB";
-        storeAcceptedCameraState();
         previousCameraTargetDistance = camera.position.distanceTo(controls.target);
       }
 
@@ -1002,10 +976,9 @@ Init...</pre>
 
       renderer.setAnimationLoop(() => {
         controls.update();
-        const targetBlockedByControls = blockDisallowedFallbackTargetMotion();
-        const targetFollowApplied = targetBlockedByControls ? false : applyTargetFollowZoomExperiment();
+        const targetFollowApplied = applyTargetFollowZoomExperiment();
         previousCameraTargetDistance = camera.position.distanceTo(controls.target);
-        if (targetBlockedByControls || targetFollowApplied || state.targetBlockedByClamp === "yes") {
+        if (targetFollowApplied || state.targetBlockedByClamp === "yes") {
           updateControlsDebug();
         } else {
           updateWebGLTargetGizmo();
